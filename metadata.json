@@ -1,0 +1,6 @@
+{
+  "name": "Assembly Line",
+  "description": "A 4-phase video production pipeline for a YouTube channel about how military and defense products are manufactured inside factories.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

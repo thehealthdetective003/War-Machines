@@ -1,0 +1,104 @@
+import { AppState, T2VPrompt } from '../types';
+import { resplitTranscription } from './timedTranscript';
+import { ensureRequiredVisibleFeatures, validateSceneDirections } from './sceneDirections';
+import { deriveGraphicSceneSpec, resolvePlannedState } from './scenePlanner';
+import { projectOrTranscriptSceneDuration } from './sceneDuration';
+import { normalizeGenerationSession } from './generationSession';
+
+export type MigrationResult = { state: AppState | null; message?: string; error?: string };
+
+export function projectSceneDuration(raw: any, fallback: number): number {
+  return projectOrTranscriptSceneDuration(raw, fallback);
+}
+
+export function migrateProject(raw: any, initial: AppState, sceneDuration: number): MigrationResult {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { state: null, error: 'Invalid project file.' };
+  if (raw.projectFormat && raw.projectFormat !== 'standard-lifecycle') return { state: null, error: 'Unsupported production format.' };
+  if (raw.creationMode && raw.creationMode !== 'standard-pacing') return { state: null, error: 'Rapid and Hybrid projects are no longer supported.' };
+
+  sceneDuration = projectSceneDuration(raw, sceneDuration);
+  let transcription = raw.voiceoverTranscription || null;
+  let timingChanged = false;
+  if (transcription && transcription.sceneDurationSeconds !== sceneDuration) {
+    transcription = resplitTranscription(transcription, sceneDuration);
+    timingChanged = true;
+  }
+  const rawPlan = Array.isArray(raw.plannedScenes) ? raw.plannedScenes.map((item:any,index:number)=>{
+    const base={...item,state:resolvePlannedState(raw.topic,item?.stage_id,item?.product_visibility)};
+    const timed=transcription?.scenes?.[index];
+    return {...base,graphic_spec:item?.graphic_spec??(timed?deriveGraphicSceneSpec(raw.topic,timed,base):null)};
+  }) : [];
+  const showdownRoles=['ANTICIPATION','GROUND_REVEAL','HUMAN_SCALE','PREPARATION','DEPARTURE','AIRBORNE_ESTABLISHMENT','PERFORMANCE_PASS','COCKPIT_IMMERSION','ENVIRONMENTAL_SPECTACLE','OPERATIONAL_RESET','SECOND_PEAK','CONTROLLED_RETURN'];
+  const cameraPlatforms=['GROUND_TRIPOD','GROUND_HANDHELD','RUNWAY_LONG_LENS','DISTANT_OBSERVATION','CHASE_AIRCRAFT','COCKPIT_MOUNTED','CANOPY_SIDE','VEHICLE_OR_DECK_MOUNTED'];
+  const graphicSubtypes=['COMPONENT_HIGHLIGHT','TECHNICAL_CUTAWAY','PROCESS_FLOW','MECHANICAL_RELATIONSHIP','LAYER_EXPLANATION','SCALE_COMPARISON','SENSOR_SIGNAL','HEAT_OR_ENERGY_FLOW','FACTORY_SCHEMATIC','SYMBOLIC_LOCATION','CONCEPTUAL_TRANSITION'];
+  const graphicSpecValid=(item:any)=>item?.graphic_spec===null||(
+    graphicSubtypes.includes(item?.graphic_spec?.graphic_subtype)&&item?.graphic_spec?.visual_claim&&item?.graphic_spec?.composition&&item?.graphic_spec?.motion_pattern
+    &&Array.isArray(item?.graphic_spec?.annotation_devices)&&[1,2,3].includes(item?.graphic_spec?.maximum_animated_elements)&&item?.graphic_spec?.text_policy==='NO_GENERATED_TEXT'
+  );
+  // Schema 9 introduces VO-authoritative documentary planning. Schema 10 keeps
+  // transcript-window timing separate from the full generated clip duration.
+  const planValid = raw.projectSchemaVersion >= 9 && !!transcription && rawPlan.length === transcription.scenes.length && rawPlan.every((item:any,index:number)=>
+    item?.number===index+1&&item?.chapter_id&&item?.beat_id&&item?.visual_family&&item?.story_function&&item?.visual_treatment&&item?.product_visibility&&item?.stage_id&&item?.environment_ref&&['A','B','C'].includes(item?.state)
+    &&(item?.showdown_role===null||showdownRoles.includes(item?.showdown_role))&&['LOW','MEDIUM','HIGH'].includes(item?.energy_level)
+    &&(item?.camera_platform===null||cameraPlatforms.includes(item?.camera_platform))&&graphicSpecValid(item)
+  );
+  const rawDirections = Array.isArray(raw.sceneDirections) ? raw.sceneDirections : [];
+  const planByNumber = new Map(rawPlan.map((item:any)=>[Number(item.number),item]));
+  const repairedDirections = planValid ? rawDirections.map((item:any)=>{
+    const plan:any=planByNumber.get(Number(item?.number));
+    return plan ? {...item,generation_duration_seconds:sceneDuration,chapter_id:plan.chapter_id,beat_id:plan.beat_id,visual_family:plan.visual_family,story_function:plan.story_function,visual_treatment:plan.visual_treatment,product_visibility:plan.product_visibility,showdown_role:plan.showdown_role,energy_level:plan.energy_level,camera_platform:plan.camera_platform,graphic_spec:plan.graphic_spec,stage_id:plan.stage_id,environment_ref:plan.environment_ref,state:plan.state,required_visible_features:ensureRequiredVisibleFeatures(item,plan)} : item;
+  }) : rawDirections;
+  const directionsValid = planValid && !!transcription && validateSceneDirections(repairedDirections, transcription.scenes, rawPlan, sceneDuration).length === 0;
+  const imageMode = raw.phase4Mode === 'image-animation';
+  const profileSupported = raw.projectSchemaVersion >= 4 && (raw.t2vPromptProfile === 'omni-flash' || raw.t2vPromptProfile === 'veo-flow');
+  const rawPrompts = Array.isArray(raw.visualPrompts) ? raw.visualPrompts : [];
+  const promptNumbers = new Set<number>();
+  const promptsCompatible = raw.projectSchemaVersion >= 10 && directionsValid && rawPrompts.every((item:any) => {
+    const number = Number(item?.number);
+    const valid = Number.isInteger(number) && number >= 1 && number <= transcription.scenes.length && !promptNumbers.has(number) && typeof item?.video_prompt === 'string' && item.video_prompt.trim();
+    if (valid) promptNumbers.add(number);
+    return Boolean(valid);
+  });
+  const compatiblePrompts: T2VPrompt[] = directionsValid && !imageMode && profileSupported && promptsCompatible
+    ? rawPrompts.map((item: any) => {
+        const number=Number(item.number);
+        const base:T2VPrompt={
+        number, stage_id: item.stage_id || item.stage_ref, state: item.state,
+        continuity_notes: item.continuity_notes, quality_flags: item.quality_flags,
+        action_description: String(item.action_description || ''), video_prompt: String(item.video_prompt || ''),
+        voiceover: transcription.scenes[number - 1]?.text || '', stock_keywords: String(item.stock_keywords || ''),
+        omniSections:item.omniSections,
+      };
+      return base;
+    })
+    : [];
+  const preserveOutput = compatiblePrompts.length > 0;
+  const phase = directionsValid ? (Number(raw.phase) >= 3 ? 3 : Math.max(1, Number(raw.phase) || 1)) : (raw.topic ? 2 : 1);
+  const generationSession = normalizeGenerationSession(raw.generationSession,compatiblePrompts.length);
+  if (!raw.generationSession && directionsValid && compatiblePrompts.length === repairedDirections.length && compatiblePrompts.length > 0) {
+    generationSession.status = 'complete';
+    generationSession.completedScenes = compatiblePrompts.length;
+  }
+  const state: AppState = {
+    ...initial,
+    id: raw.id,
+    projectName: raw.projectName || initial.projectName,
+    projectFormat: 'standard-lifecycle',
+    phase: phase as 1 | 2 | 3,
+    topic: raw.topic || null,
+    masterVoiceoverScript: transcription?.text || '',
+    voiceoverTranscription: transcription,
+    plannedScenes: planValid ? rawPlan : [],
+    sceneDirections: directionsValid ? repairedDirections : [],
+    visualPrompts: preserveOutput ? compatiblePrompts.sort((a,b)=>a.number-b.number) : [],
+    demoState: 'idle', demoScenes: [], demoSceneNumbers: [],
+    t2vPromptProfile: profileSupported ? raw.t2vPromptProfile : 'omni-flash',
+    generationSession,
+    projectSchemaVersion: 10,
+  };
+  const reset = timingChanged || imageMode || !profileSupported || !directionsValid || !preserveOutput;
+  const planningUpgrade = raw.projectSchemaVersion < 9 && rawPlan.length > 0;
+  return { state, message: planningUpgrade
+    ? 'Project content and transcript were preserved. Rebuild Phase 2 directions with the new VO-synchronized documentary planner.'
+    : reset && raw.topic ? 'Project migrated to the timestamped T2V pipeline; incompatible downstream output was reset.' : undefined };
+}

@@ -1,0 +1,354 @@
+{
+  "schema": {
+    "name": "Modus Assembly Visual Production Handoff",
+    "version": "2.0.0",
+    "contract_type": "VISUAL_ONLY_ENGINE_TO_APP_HANDOFF"
+  },
+  "product": {
+    "official_name": "",
+    "exact_variant": "",
+    "product_class": "",
+    "manufacturer": "",
+    "aliases": [],
+    "overall_visual_description": "",
+    "immutable_identity_features": [],
+    "visually_similar_products_to_avoid": [],
+    "global_negative_constraints": []
+  },
+  "dimensions_and_proportions": {
+    "overall_length": {
+      "value": null,
+      "unit": "",
+      "confidence": "UNKNOWN"
+    },
+    "overall_width_or_wingspan": {
+      "value": null,
+      "unit": "",
+      "confidence": "UNKNOWN"
+    },
+    "overall_height": {
+      "value": null,
+      "unit": "",
+      "confidence": "UNKNOWN"
+    },
+    "important_proportion_rules": [],
+    "human_scale_reference": ""
+  },
+  "geometry_modules": [
+    {
+      "module_id": "FULL_PRODUCT",
+      "module_name": "",
+      "required_visible_features": [],
+      "minimum_visible_anchor_count": 4,
+      "forbidden_geometry_changes": [],
+      "likely_wrong_substitutions": []
+    }
+  ],
+  "reference_assets": [
+    {
+      "asset_id": "REF_001",
+      "asset_type": "IMAGE",
+      "product_or_component": "",
+      "exact_variant_or_configuration": "",
+      "production_stage": "",
+      "view_angle": "",
+      "source_page_url": "",
+      "direct_media_url_or_file_reference": "",
+      "publisher_or_owner": "",
+      "date_or_event": "",
+      "visual_verification": "PASS",
+      "facility_claim_status": "UNUSABLE",
+      "exact_factory_verified": false,
+      "visible_geometry_features": [],
+      "allowed_usage": [],
+      "forbidden_usage": [],
+      "recommended_media_routes": [],
+      "confidence": "UNKNOWN"
+    }
+  ],
+  "environments": [
+    {
+      "environment_id": "ENV_ASSEMBLY_INTERIOR",
+      "environment_name": "",
+      "setting_scope": "INTERIOR",
+      "facility_type": "",
+      "facility_claim_status": "GENERIC_NON_IDENTIFYING_VISUAL",
+      "exact_facility_name_if_verified": "",
+      "factory_zone": "",
+      "geographic_or_industrial_context": "",
+      "floor": "",
+      "walls": "",
+      "ceiling": "",
+      "lighting": "",
+      "exterior_features": [],
+      "aerial_features": [],
+      "machinery": [],
+      "jigs_and_supports": [],
+      "tools": [],
+      "worker_roles": [],
+      "worker_uniforms_and_ppe": [],
+      "scale_references": [],
+      "allowed_background_activity": [],
+      "forbidden_elements": []
+    },
+    {
+      "environment_id": "ENV_FACTORY_AERIAL",
+      "environment_name": "",
+      "setting_scope": "AERIAL",
+      "facility_type": "",
+      "facility_claim_status": "CONTEXTUAL_INDUSTRIAL_VISUAL",
+      "exact_facility_name_if_verified": "",
+      "factory_zone": "",
+      "geographic_or_industrial_context": "",
+      "floor": "",
+      "walls": "",
+      "ceiling": "",
+      "lighting": "",
+      "exterior_features": [],
+      "aerial_features": [],
+      "machinery": [],
+      "jigs_and_supports": [],
+      "tools": [],
+      "worker_roles": [],
+      "worker_uniforms_and_ppe": [],
+      "scale_references": [],
+      "allowed_background_activity": [],
+      "forbidden_elements": []
+    }
+  ],
+  "production_stages": [
+    {
+      "stage_id": "STG_01",
+      "stage_number": 1,
+      "stage_name": "",
+      "production_function": "",
+      "product_state_code": "A",
+      "stage_visual_summary": "",
+      "environment_ids": [
+        "ENV_ASSEMBLY_INTERIOR"
+      ],
+      "product_state": {
+        "overall_form": "",
+        "recognizable_as_final_product": false,
+        "orientation": "",
+        "support_method": "",
+        "surface_condition": "",
+        "markings_condition": "",
+        "interior_visibility": ""
+      },
+      "present_now": [],
+      "not_yet_installed": [],
+      "temporarily_exposed": [],
+      "open_interfaces": [],
+      "unfinished_edges_or_sections": [],
+      "geometry_control": {
+        "primary_geometry_module_id": "FULL_PRODUCT",
+        "secondary_geometry_module_ids": [],
+        "required_visible_anchors": [],
+        "minimum_visible_anchor_count": 0,
+        "corrective_positive_geometry": [],
+        "likely_wrong_substitutions": [],
+        "negative_constraints": [],
+        "immutable_during_clip": [],
+        "forbidden_transformations": []
+      },
+      "stage_actions": [
+        {
+          "action_id": "STG_01_ACT_01",
+          "action_description": "",
+          "primary_subject": "",
+          "primary_action": "",
+          "allowed_minor_motion": "",
+          "required_tools_or_machinery": [],
+          "required_worker_roles": [],
+          "forbidden_actions": []
+        }
+      ],
+      "camera_guidance": {
+        "preferred_views": [],
+        "safe_shot_scales": [],
+        "preferred_camera_movements": [],
+        "forbidden_camera_movements": [],
+        "high_risk_views": []
+      },
+      "stage_visual_opportunities": {
+        "recommended_visual_families": [],
+        "component_macro_opportunities": [],
+        "machinery_action_opportunities": [],
+        "worker_activity_opportunities": [],
+        "quality_control_opportunities": [],
+        "logistics_or_material_flow_opportunities": [],
+        "non_product_cutaway_opportunities": []
+      },
+      "visual_evidence": {
+        "confirmed_visual_details": [],
+        "analyst_inferred_visual_details": [],
+        "uncertain_visual_details": [],
+        "reference_asset_ids": []
+      },
+      "continuity": {
+        "previous_stage_end_state": "",
+        "current_stage_start_state": "",
+        "current_stage_end_state": "",
+        "next_stage_expected_state": "",
+        "features_that_must_remain_consistent": [],
+        "forbidden_regressions": []
+      },
+      "prompt_constraints": {
+        "one_stable_product_state": true,
+        "one_primary_action": true,
+        "no_component_appears_before_installation": true,
+        "no_automatic_completion_of_product": true,
+        "no_geometry_morphing": true,
+        "no_readable_generated_text": true,
+        "must_repeat_exact_product_and_variant": true,
+        "must_repeat_present_and_absent_components": true,
+        "must_include_view_specific_geometry": true
+      }
+    }
+  ],
+  "stage_transitions": [],
+  "visual_story_plan": {
+    "documentary_arc": {
+      "central_manufacturing_question": "",
+      "opening_visual_promise": "",
+      "promised_payoffs": [],
+      "closing_visual_payoff": ""
+    },
+    "chapters": [
+      {
+        "chapter_id": "CH01",
+        "chapter_name": "",
+        "chapter_order": 1,
+        "narrative_goal": "",
+        "chapter_question": "",
+        "chapter_payoff": "",
+        "opening_rehook_intent": "",
+        "applicable_production_stage_ids": [
+          "STG_01"
+        ],
+        "required_visual_families": [],
+        "optional_visual_families": [],
+        "forbidden_visual_families": [],
+        "visual_beats": [
+          {
+            "beat_id": "CH01_B01",
+            "beat_order": 1,
+            "beat_name": "",
+            "story_function": "ESTABLISH_SCALE",
+            "visual_family": "FACTORY_AERIAL",
+            "narrative_purpose": "",
+            "semantic_alignment_terms": [],
+            "applicable_stage_ids": [],
+            "environment_ids": [
+              "ENV_FACTORY_AERIAL"
+            ],
+            "product_visibility": "NONE",
+            "required_product_state_code": null,
+            "facility_claim_status": "CONTEXTUAL_INDUSTRIAL_VISUAL",
+            "reference_asset_ids": [],
+            "preferred_media_routes": [
+              "GENERATED_T2V"
+            ],
+            "generation_permission": "T2V_ALLOWED",
+            "exact_factory_claim_allowed": false,
+            "preferred_shot_scales": [
+              "EXTREME_WIDE"
+            ],
+            "preferred_camera_movements": [
+              "SLOW_FORWARD_AERIAL"
+            ],
+            "minimum_usable_duration_seconds": 6,
+            "preferred_duration_seconds": 6,
+            "maximum_duration_seconds": 6,
+            "must_show": [],
+            "must_not_show": [],
+            "continuity_requirements": [],
+            "negative_constraints": []
+          }
+        ]
+      }
+    ],
+    "rhythm_policy": {
+      "preferred_usable_scene_duration_seconds": {
+        "minimum": 6,
+        "preferred": 6,
+        "maximum": 6
+      },
+      "maximum_consecutive_same_visual_family": 2,
+      "maximum_consecutive_full_product_scenes": 2,
+      "maximum_consecutive_same_environment_without_new_information": 3,
+      "require_context_process_detail_cycle_when_supported": true,
+      "attention_reset_interval_seconds": {
+        "minimum": 35,
+        "maximum": 60
+      },
+      "minimum_meaningful_visual_families_per_60_seconds": 3,
+      "avoid_repeated_camera_angle": true,
+      "avoid_repeated_camera_movement": true,
+      "avoid_decorative_visuals_without_narrative_purpose": true
+    },
+    "factory_truth_policy": {
+      "exact_factory_claim_requires_verified_reference": true,
+      "contextual_factory_must_not_be_presented_as_exact": true,
+      "generated_manufacturer_logos_forbidden": true,
+      "generated_readable_factory_text_forbidden": true,
+      "invented_facility_names_forbidden": true
+    },
+    "media_routing_policy": {
+      "exact_product_geometry_prefers_reference_media": true,
+      "exact_markings_require_reference_lock": true,
+      "verified_events_prefer_authentic_media": true,
+      "maps_timelines_dimensions_and_diagrams_require_editor_graphics": true,
+      "generated_t2v_allowed_for_contextual_non_identifying_industrial_visuals": true,
+      "no_valid_route_must_be_flagged": true
+    },
+    "visual_balance_targets": {
+      "manufacturing_and_assembly_percent": {
+        "minimum": 35,
+        "maximum": 45
+      },
+      "factory_scale_and_logistics_percent": {
+        "minimum": 15,
+        "maximum": 20
+      },
+      "component_detail_and_quality_control_percent": {
+        "minimum": 10,
+        "maximum": 15
+      },
+      "testing_and_operational_context_percent": {
+        "minimum": 15,
+        "maximum": 20
+      },
+      "graphics_and_reference_media_percent": {
+        "minimum": 10,
+        "maximum": 15
+      },
+      "completed_product_hero_imagery_percent": {
+        "minimum": 5,
+        "maximum": 15
+      },
+      "targets_are_advisory_not_hard_quotas": true
+    }
+  },
+  "global_prompt_rules": {
+    "use_positive_geometry_before_negative_constraints": true,
+    "use_smallest_relevant_geometry_module": true,
+    "treat_each_generated_clip_as_stateless": true,
+    "one_stable_state_per_clip": true,
+    "one_primary_action_per_clip": true,
+    "maximum_minor_supporting_actions": 1,
+    "maximum_camera_movements": 1,
+    "generated_readable_text_forbidden": true,
+    "geometry_transformation_forbidden": true,
+    "generic_product_fallback_forbidden": true,
+    "reference_asset_required_when_text_is_insufficient": true,
+    "final_prompt_generation_belongs_to_app": true,
+    "transcript_alignment_belongs_to_app": true,
+    "scene_plan_must_precede_prompt_generation": true,
+    "visual_beat_must_have_narrative_purpose": true,
+    "exact_factory_claim_requires_verified_reference": true,
+    "contextual_factory_cannot_be_named_as_exact": true,
+    "editor_native_graphics_required_for_readable_diagrams": true
+  }
+}
