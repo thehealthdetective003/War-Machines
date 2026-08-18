@@ -44,6 +44,20 @@ test('rejects an alignment claim with no semantic grounding in its VO',()=>{
   assert.throws(()=>validateAlignmentSelections(requests,[{group_id:requests[0].group_id,source:'VO_FALLBACK',beat_id:null,confidence:.8,visual_claim:'A helicopter flies above a mountain runway'}]),/not grounded in its voiceover/i);
 });
 
+test('allows a safe closing hero claim for an editorial subscribe CTA',()=>{
+  const topic=withOperationalBeat(),scenes=timed(['Subscribe to Modus Assembly for the next machine built to work where people do not have to.']);
+  const base=buildDocumentaryScenePlan(topic,scenes),requests=buildAlignmentRequests(topic,scenes,base);
+  const selections=validateAlignmentSelections(requests,[{group_id:requests[0].group_id,source:'VO_FALLBACK',beat_id:null,confidence:.75,visual_claim:'Completed autonomous vessel cruises safely through open water'}]);
+  const [planned]=applyVisualAlignments(topic,scenes,base,requests,selections);
+  assert.equal(planned.visual_family,'OPERATIONAL_CONTEXT');assert.equal(planned.state,'C');
+});
+
+test('accepts ordinary morphological paraphrases while retaining grounding',()=>{
+  const topic=normalizeProductionHandoff(JSON.parse(JSON.stringify(template))),scenes=timed(['Technicians are installing structural interfaces inside the hull.']);
+  const base=buildDocumentaryScenePlan(topic,scenes),requests=buildAlignmentRequests(topic,scenes,base);
+  assert.doesNotThrow(()=>validateAlignmentSelections(requests,[{group_id:requests[0].group_id,source:'VO_FALLBACK',beat_id:null,confidence:.8,visual_claim:'A technician installs one hull interface'}]));
+});
+
 test('rejects an operational Engine beat selected for manufacturing narration',()=>{
   const topic=withOperationalBeat(),scenes=timed(['Workers install and fasten the unfinished sensor mast inside the assembly hall.']);
   const base=buildDocumentaryScenePlan(topic,scenes),requests=buildAlignmentRequests(topic,scenes,base),operational=requests[0].candidates.find(candidate=>candidate.beat_id==='CH02_OPERATION');

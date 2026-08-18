@@ -34,7 +34,9 @@ export interface VisualAlignmentSelection {
 
 const stop=new Set(['the','and','that','this','with','from','into','while','through','about','then','than','only','also','have','has','had','does','not','scene','show','visual','product','system']);
 const tokens=(value:string)=>new Set((value.toLowerCase().match(/[a-z0-9]{3,}/g)||[]).filter(value=>!stop.has(value)));
+const groundingTokens=(value:string)=>new Set([...tokens(value)].map(value=>value.length>5?value.slice(0,6):value));
 const overlap=(a:Set<string>,b:Set<string>)=>[...a].filter(value=>b.has(value)).length;
+const editorialNarration=(value:string)=>/\b(subscribe|follow (?:the|this|our)|watch next|next (?:episode|video|machine)|our channel|thanks? for watching|modus assembly)\b/i.test(value);
 const OPERATIONAL_FAMILIES=new Set<VisualFamily>(['OPERATIONAL_CONTEXT','DYNAMIC_TESTING','ENVIRONMENTAL_TESTING','DELIVERY_AND_ROLLOUT','HERO_PRODUCT']);
 const GRAPHIC_FAMILIES=new Set<VisualFamily>(['TECHNICAL_GRAPHIC','MAP_OR_SUPPLY_CHAIN']);
 const treatment=(beat:V2VisualBeat):VisualTreatment=>{
@@ -70,7 +72,7 @@ export function validateAlignmentSelections(requests:AlignmentRequestGroup[],raw
     if(source==='ENGINE_BEAT'&&!request.candidates.some(candidate=>candidate.beat_id===beat_id))throw new Error(`${group_id} selected a beat outside its validated shortlist.`);
     if(source==='VO_FALLBACK'&&beat_id!==null)throw new Error(`${group_id} fallback must not claim an Engine beat.`);
     const confidence=Math.max(0,Math.min(1,Number(item?.confidence)||0));const visual_claim=String(item?.visual_claim||'').trim();if(!visual_claim)throw new Error(`${group_id} has no visual claim.`);
-    const voiceoverTokens=tokens(request.voiceover),claimTokens=tokens(visual_claim);if(voiceoverTokens.size>=4&&claimTokens.size>=3&&overlap(voiceoverTokens,claimTokens)===0)throw new Error(`${group_id} visual claim is not grounded in its voiceover.`);
+    const narrationTokens=groundingTokens(`${request.voiceover} ${request.previous_context} ${request.next_context}`),claimTokens=groundingTokens(visual_claim);if(!editorialNarration(request.voiceover)&&narrationTokens.size>=4&&claimTokens.size>=3&&overlap(narrationTokens,claimTokens)===0)throw new Error(`${group_id} visual claim is not grounded in its voiceover.`);
     if(source==='ENGINE_BEAT'){const candidate=request.candidates.find(value=>value.beat_id===beat_id)!;const lifecycle=lifecycleAlignmentIssues(visual_claim,candidate.visual_family);if(lifecycle.length)throw new Error(`${group_id} selected ${candidate.visual_family} for an incompatible narration lifecycle.`);}
     return {group_id,source,beat_id,confidence,visual_claim} as VisualAlignmentSelection;
   });
