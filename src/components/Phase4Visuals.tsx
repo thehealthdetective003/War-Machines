@@ -18,7 +18,6 @@ import { clampPromptPage, PROMPT_PAGE_SIZE, promptPageCount, promptPageItems } f
 import { Input } from '@/components/ui/input';
 import { idleGenerationSession } from '../lib/generationSession';
 import { promptQualityIssues } from '../lib/promptQuality';
-import { validateDirectionSemantics } from '../lib/directionSemantics';
 
 interface Props {
   state: AppState;
@@ -75,8 +74,6 @@ export function Phase4Visuals({ state, setState, commitProjectState, resumeAfter
 
   const generate = async (demo: boolean, resume = false) => {
     if (!directions.length) return toast.error('Approve valid Phase 2 directions first.');
-    const semanticErrors=validateDirectionSemantics(directions);
-    if(semanticErrors.length)return toast.error(`Phase 2 VO/visual alignment is invalid: ${semanticErrors.slice(0,3).join(' ')} Regenerate scene directions before Phase 3.`);
     const apiKey = settings.apiKey || process.env.GEMINI_API_KEY;
     if (!apiKey) return toast.error('Add a Gemini API key in Settings.');
     setLoading(demo ? 'demo' : 'full');

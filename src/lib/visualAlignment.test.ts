@@ -44,6 +44,13 @@ test('rejects an alignment claim with no semantic grounding in its VO',()=>{
   assert.throws(()=>validateAlignmentSelections(requests,[{group_id:requests[0].group_id,source:'VO_FALLBACK',beat_id:null,confidence:.8,visual_claim:'A helicopter flies above a mountain runway'}]),/not grounded in its voiceover/i);
 });
 
+test('can continue with a structurally valid selection when only advisory semantics remain uncertain',()=>{
+  const topic=normalizeProductionHandoff(JSON.parse(JSON.stringify(template))),scenes=timed(['Workers assemble and inspect the structural hull section.']);
+  const base=buildDocumentaryScenePlan(topic,scenes),requests=buildAlignmentRequests(topic,scenes,base),selection={group_id:requests[0].group_id,source:'VO_FALLBACK',beat_id:null,confidence:.8,visual_claim:'A helicopter flies above a mountain runway'};
+  assert.doesNotThrow(()=>validateAlignmentSelections(requests,[selection],{enforceSemanticChecks:false}));
+  assert.throws(()=>validateAlignmentSelections(requests,[{...selection,source:'ENGINE_BEAT',beat_id:'NOT_AUTHORIZED'}],{enforceSemanticChecks:false}),/outside its validated shortlist/i);
+});
+
 test('allows a safe closing hero claim for an editorial subscribe CTA',()=>{
   const topic=withOperationalBeat(),scenes=timed(['Subscribe to Modus Assembly for the next machine built to work where people do not have to.']);
   const base=buildDocumentaryScenePlan(topic,scenes),requests=buildAlignmentRequests(topic,scenes,base);

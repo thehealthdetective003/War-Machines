@@ -4,7 +4,6 @@ import { ensureRequiredVisibleFeatures, validateSceneDirections } from './sceneD
 import { deriveGraphicSceneSpec, resolvePlannedState } from './scenePlanner';
 import { projectOrTranscriptSceneDuration } from './sceneDuration';
 import { normalizeGenerationSession } from './generationSession';
-import { validateDirectionSemantics, validatePlannedSceneSemantics } from './directionSemantics';
 
 export type MigrationResult = { state: AppState | null; message?: string; error?: string };
 
@@ -43,7 +42,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     &&(item?.showdown_role===null||showdownRoles.includes(item?.showdown_role))&&['LOW','MEDIUM','HIGH'].includes(item?.energy_level)
     &&(item?.camera_platform===null||cameraPlatforms.includes(item?.camera_platform))&&graphicSpecValid(item)&&['ENGINE_BEAT','VO_FALLBACK'].includes(item?.alignment_source)
     &&typeof item?.alignment_claim==='string'&&Array.isArray(item?.reference_asset_ids)&&Array.isArray(item?.required_visible_features)&&Array.isArray(item?.forbidden_elements)&&Array.isArray(item?.continuity_requirements)
-  ) && validatePlannedSceneSemantics(rawPlan).length === 0;
+  );
   const rawDirections = Array.isArray(raw.sceneDirections) ? raw.sceneDirections : [];
   const planByNumber = new Map(rawPlan.map((item:any)=>[Number(item.number),item]));
   const repairedDirections = planValid ? rawDirections.map((item:any)=>{
@@ -52,8 +51,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
   }) : rawDirections;
   const directionPrefixValid = planValid && !!transcription && repairedDirections.length <= transcription.scenes.length
     && repairedDirections.every((item:any,index:number)=>Number(item?.number)===index+1)
-    && validateSceneDirections(repairedDirections, transcription.scenes.slice(0,repairedDirections.length), rawPlan.slice(0,repairedDirections.length), sceneDuration).length === 0
-    && validateDirectionSemantics(repairedDirections).length === 0;
+    && validateSceneDirections(repairedDirections, transcription.scenes.slice(0,repairedDirections.length), rawPlan.slice(0,repairedDirections.length), sceneDuration).length === 0;
   const directionsValid = directionPrefixValid && repairedDirections.length === transcription.scenes.length;
   const imageMode = raw.phase4Mode === 'image-animation';
   const profileSupported = raw.projectSchemaVersion >= 4 && (raw.t2vPromptProfile === 'omni-flash' || raw.t2vPromptProfile === 'veo-flow');

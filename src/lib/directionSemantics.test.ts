@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { directionSemanticIssues } from './directionSemantics';
+import { directionSemanticIssues, isManufacturingVisualClaim, isOperationalVisualClaim } from './directionSemantics';
 import type { SceneDirection } from '../types';
 
 const base:any={number:1,alignment_claim:'The completed unmanned vessel maintains a stable course through moderate offshore waves',visual_family:'OPERATIONAL_CONTEXT',state:'C',subject:'Completed unmanned vessel',primary_action:'The vessel maintains a stable course through moderate waves',temporal_action:{opening_state:'The vessel enters a moderate wave',primary_motion:'The bow rises over the crest',physical_interaction:'Spray moves along the hull',mid_shot_progression:'The hull rolls gently and recovers',ending_state:'The vessel settles on a stable course'}};
@@ -25,4 +25,10 @@ test('rejects manufacturing narration assigned to completed-product operational 
 test('allows an assigned technical graphic to explain an operational relationship',()=>{
   const direction={...base,visual_family:'TECHNICAL_GRAPHIC',state:'A',alignment_claim:'Signal waves show how the vessel searches offshore and keeps an operator connected',subject:'Text-free vessel and signal relationship',primary_action:'Signal waves extend between the vessel and operator',temporal_action:{...base.temporal_action,primary_motion:'One signal wave expands offshore',physical_interaction:'The wave connects the vessel and operator',mid_shot_progression:'The search coverage zone becomes visible'}} as SceneDirection;
   assert.deepEqual(directionSemanticIssues(direction),[]);
+});
+
+test('distinguishes the manufacturing verb install from an operational installation noun',()=>{
+  assert.equal(isManufacturingVisualClaim('Workers install the sensor module inside the workshop'),true);
+  assert.equal(isManufacturingVisualClaim('A compact machine moves beside an offshore installation'),false);
+  assert.equal(isOperationalVisualClaim('A compact machine moves beside an offshore installation'),true);
 });

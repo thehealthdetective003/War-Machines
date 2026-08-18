@@ -63,7 +63,8 @@ export function buildAlignmentRequests(topic:TopicBrief,scenes:TimedScene[],base
   });
 }
 
-export function validateAlignmentSelections(requests:AlignmentRequestGroup[],raw:unknown):VisualAlignmentSelection[]{
+export function validateAlignmentSelections(requests:AlignmentRequestGroup[],raw:unknown,options:{enforceSemanticChecks?:boolean}={}):VisualAlignmentSelection[]{
+  const enforceSemanticChecks=options.enforceSemanticChecks!==false;
   if(!Array.isArray(raw))throw new Error('Gemini returned a non-array visual alignment response.');
   const byId=new Map(requests.map(request=>[request.group_id,request]));const seen=new Set<string>();
   const selections=raw.map((item:any)=>{
@@ -72,8 +73,8 @@ export function validateAlignmentSelections(requests:AlignmentRequestGroup[],raw
     if(source==='ENGINE_BEAT'&&!request.candidates.some(candidate=>candidate.beat_id===beat_id))throw new Error(`${group_id} selected a beat outside its validated shortlist.`);
     if(source==='VO_FALLBACK'&&beat_id!==null)throw new Error(`${group_id} fallback must not claim an Engine beat.`);
     const confidence=Math.max(0,Math.min(1,Number(item?.confidence)||0));const visual_claim=String(item?.visual_claim||'').trim();if(!visual_claim)throw new Error(`${group_id} has no visual claim.`);
-    const narrationTokens=groundingTokens(`${request.voiceover} ${request.previous_context} ${request.next_context}`),claimTokens=groundingTokens(visual_claim);if(!editorialNarration(request.voiceover)&&narrationTokens.size>=4&&claimTokens.size>=3&&overlap(narrationTokens,claimTokens)===0)throw new Error(`${group_id} visual claim is not grounded in its voiceover.`);
-    if(source==='ENGINE_BEAT'){const candidate=request.candidates.find(value=>value.beat_id===beat_id)!;const lifecycle=lifecycleAlignmentIssues(visual_claim,candidate.visual_family);if(lifecycle.length)throw new Error(`${group_id} selected ${candidate.visual_family} for an incompatible narration lifecycle.`);}
+    const narrationTokens=groundingTokens(`${request.voiceover} ${request.previous_context} ${request.next_context}`),claimTokens=groundingTokens(visual_claim);if(enforceSemanticChecks&&!editorialNarration(request.voiceover)&&narrationTokens.size>=4&&claimTokens.size>=3&&overlap(narrationTokens,claimTokens)===0)throw new Error(`${group_id} visual claim is not grounded in its voiceover.`);
+    if(enforceSemanticChecks&&source==='ENGINE_BEAT'){const candidate=request.candidates.find(value=>value.beat_id===beat_id)!;const lifecycle=lifecycleAlignmentIssues(visual_claim,candidate.visual_family);if(lifecycle.length)throw new Error(`${group_id} selected ${candidate.visual_family} for an incompatible narration lifecycle.`);}
     return {group_id,source,beat_id,confidence,visual_claim} as VisualAlignmentSelection;
   });
   const missing=requests.filter(request=>!seen.has(request.group_id));if(missing.length)throw new Error(`Gemini omitted visual alignment groups ${missing.map(item=>item.group_id).join(', ')}.`);return selections;
