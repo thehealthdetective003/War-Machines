@@ -587,7 +587,7 @@ export default function App() {
                     {activePhase?.id === 1 ? (
                       <Phase1Topic state={state} setState={setState} />
                     ) : activePhase?.id === 2 ? (
-                      <Phase2Script state={state} setState={setState} />
+                      <Phase2Script state={state} setState={setState} commitProjectState={commitProjectState} />
                     ) : activePhase?.id === 3 ? (
                       <Phase4Visuals
                         state={state}

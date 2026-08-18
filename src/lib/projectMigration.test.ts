@@ -44,6 +44,22 @@ test('schema 10 projects preserve inputs but reset downstream output for automat
   const result=migrateProject(raw,initial,8);assert.equal(result.state?.projectSchemaVersion,11);assert.equal(result.state?.phase,2);assert.deepEqual(result.state?.plannedScenes,[]);assert.deepEqual(result.state?.sceneDirections,[]);assert.deepEqual(result.state?.visualPrompts,[]);assert.match(result.message||'',/realignment/i);
 });
 
+test('preserves a valid Phase 2 direction prefix for cross-profile resume',()=>{
+  const transcriptScenes=[
+    {number:1,start:0,end:8,duration:8,text:'First',silent:false},
+    {number:2,start:8,end:16,duration:8,text:'Second',silent:false},
+  ];
+  const plans=[plan,{...plan,number:2,beat_id:'B02',alignment_claim:'Show the next assembly action'}];
+  const firstDirection={...plan,start:0,end:8,duration:8,generation_duration_seconds:8,voiceover:'First',silent:false,subject:'Steel',product_visual_state:'Raw',primary_action:'Moves',supporting_motion:'None',environment_description:'Factory',camera:{shot_scale:'wide',lens:'35mm',angle:'eye',movement:'track',movement_speed:'slow'},lighting_and_material:'Cool steel',continuity_from_previous:'Opening',transition_to_next:'Cut',required_visible_features:['steel'],forbidden_elements:['finished product'],temporal_action};
+  const raw:any={...initial,phase:2,topic:{topic:{title:'X'}},voiceoverTranscription:{duration:16,sceneDurationSeconds:8,text:'First Second',words:[],scenes:transcriptScenes},plannedScenes:plans,sceneDirections:[firstDirection]};
+  const result=migrateProject(JSON.parse(JSON.stringify(raw)),initial,8);
+  assert.equal(result.state?.phase,2);
+  assert.equal(result.state?.plannedScenes.length,2);
+  assert.equal(result.state?.sceneDirections.length,1);
+  assert.equal(result.state?.sceneDirections[0].number,1);
+  assert.match(result.message||'',/Resume from scene 2/i);
+});
+
 test('prefers an arbitrary positive V2 handoff duration over saved transcript timing', () => {
   const raw:any={topic:{_production_handoff:{schema:{version:'2.0.0'},visual_story_plan:{rhythm_policy:{preferred_usable_scene_duration_seconds:{preferred:6.5}}}}},voiceoverTranscription:{sceneDurationSeconds:10}};
   assert.equal(projectSceneDuration(raw, 8), 6.5);

@@ -49,7 +49,10 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     const plan:any=planByNumber.get(Number(item?.number));
     return plan ? {...item,generation_duration_seconds:sceneDuration,chapter_id:plan.chapter_id,beat_id:plan.beat_id,visual_family:plan.visual_family,story_function:plan.story_function,visual_treatment:plan.visual_treatment,product_visibility:plan.product_visibility,showdown_role:plan.showdown_role,energy_level:plan.energy_level,camera_platform:plan.camera_platform,graphic_spec:plan.graphic_spec,reference_asset_ids:plan.reference_asset_ids,alignment_source:plan.alignment_source,alignment_confidence:plan.alignment_confidence,alignment_claim:plan.alignment_claim,stage_id:plan.stage_id,environment_ref:plan.environment_ref,state:plan.state,required_visible_features:ensureRequiredVisibleFeatures(item,plan),forbidden_elements:[...new Set([...(plan.forbidden_elements||[]),...(item.forbidden_elements||[])])]} : item;
   }) : rawDirections;
-  const directionsValid = planValid && !!transcription && validateSceneDirections(repairedDirections, transcription.scenes, rawPlan, sceneDuration).length === 0;
+  const directionPrefixValid = planValid && !!transcription && repairedDirections.length <= transcription.scenes.length
+    && repairedDirections.every((item:any,index:number)=>Number(item?.number)===index+1)
+    && validateSceneDirections(repairedDirections, transcription.scenes.slice(0,repairedDirections.length), rawPlan.slice(0,repairedDirections.length), sceneDuration).length === 0;
+  const directionsValid = directionPrefixValid && repairedDirections.length === transcription.scenes.length;
   const imageMode = raw.phase4Mode === 'image-animation';
   const profileSupported = raw.projectSchemaVersion >= 4 && (raw.t2vPromptProfile === 'omni-flash' || raw.t2vPromptProfile === 'veo-flow');
   const rawPrompts = Array.isArray(raw.visualPrompts) ? raw.visualPrompts : [];
@@ -90,16 +93,18 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     masterVoiceoverScript: transcription?.text || '',
     voiceoverTranscription: transcription,
     plannedScenes: planValid ? rawPlan : [],
-    sceneDirections: directionsValid ? repairedDirections : [],
+    sceneDirections: directionPrefixValid ? repairedDirections : [],
     visualPrompts: preserveOutput ? compatiblePrompts.sort((a,b)=>a.number-b.number) : [],
     demoState: 'idle', demoScenes: [], demoSceneNumbers: [],
     t2vPromptProfile: profileSupported ? raw.t2vPromptProfile : 'omni-flash',
     generationSession,
     projectSchemaVersion: 11,
   };
-  const reset = timingChanged || imageMode || !profileSupported || !directionsValid || !preserveOutput;
+  const reset = timingChanged || imageMode || !profileSupported || (!directionPrefixValid && repairedDirections.length > 0) || (rawPrompts.length > 0 && !preserveOutput);
   const planningUpgrade = raw.projectSchemaVersion < 11 && rawPlan.length > 0;
+  const resumableDirections = directionPrefixValid && repairedDirections.length < (transcription?.scenes.length || 0);
   return { state, message: planningUpgrade
     ? 'Project content and transcript were preserved. Phase 2 output was reset for automatic narrative-group visual realignment.'
+    : resumableDirections ? `Restored ${repairedDirections.length} of ${transcription?.scenes.length || 0} Phase 2 directions. Resume from scene ${repairedDirections.length + 1}.`
     : reset && raw.topic ? 'Project migrated to the timestamped T2V pipeline; incompatible downstream output was reset.' : undefined };
 }
