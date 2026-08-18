@@ -13,3 +13,8 @@ test('rejects conflicting cameras, malformed grammar, and oversized prompts',()=
   const issues=promptQualityIssues(prompt(`6-second continuous shot. Use a locked camera and a slow pan. Use a extreme-wide view view. four vertical support legs. ${'detail '.repeat(290)}`),direction);
   assert.ok(issues.includes('MULTIPLE_CAMERA_MOVEMENTS'));assert.ok(issues.includes('MALFORMED_PROMPT_GRAMMAR'));assert.ok(issues.includes('INVALID_ARTICLE'));assert.ok(issues.includes('PROMPT_OVER_280_WORDS'));
 });
+
+test('does not mistake a subject-mounted sensor camera for filming-camera movement',()=>{
+  const value='6-second continuous shot. Use a locked camera while four vertical support legs remain visible. Electro-optical cameras pan across the water as part of the subject payload.';
+  assert.deepEqual(promptQualityIssues(prompt(value),direction),[]);
+});

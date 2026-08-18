@@ -1,9 +1,9 @@
 import type { SceneDirection, T2VPrompt } from '../types';
+import { countPromptWords, MAX_VIDEO_PROMPT_WORDS } from './promptLimits';
 
-const words=(value:string)=>value.trim().split(/\s+/).filter(Boolean).length;
 const movementLabels:Array<[RegExp,string]>=[
   [/\blocked camera\b|\bstatic tripod\b/i,'locked'],
-  [/\bpan(?:s|ning)?\b/i,'pan'],
+  [/\bslow pan\b|\b(?:the|a|one|filming) camera (?:slowly )?pan(?:s|ning)?\b/i,'pan'],
   [/\bpush(?:es)?[- ]?in\b/i,'push-in'],
   [/\bpull(?:s)?[- ]?back\b/i,'pull-back'],
   [/\blateral (?:track|tracking|dolly)\b|\btracks? laterally\b/i,'lateral'],
@@ -14,7 +14,7 @@ const normalized=(value:string)=>value.toLowerCase().replace(/[^a-z0-9]+/g,' ').
 
 export function promptQualityIssues(prompt:T2VPrompt,direction:SceneDirection):string[]{
   const value=prompt.video_prompt||'',issues:string[]=[];
-  if(words(value)>280)issues.push('PROMPT_OVER_280_WORDS');
+  if(countPromptWords(value)>MAX_VIDEO_PROMPT_WORDS)issues.push('PROMPT_OVER_280_WORDS');
   if(/\ba (?:extreme-wide|aerial|overhead)\b/i.test(value))issues.push('INVALID_ARTICLE');
   if(/\bview view\b|\.\s*;|\[object Object\]/i.test(value))issues.push('MALFORMED_PROMPT_GRAMMAR');
   const movements=new Set(movementLabels.filter(([pattern])=>pattern.test(value)).map(([,label])=>label));
