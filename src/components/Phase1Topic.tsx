@@ -168,9 +168,10 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
         </CollapsibleTrigger>
         <CollapsibleContent className="p-4 pt-0 space-y-4">
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Prepare your topic brief externally using an LLM (ChatGPT, Gemini, etc.), 
-            then import the completed JSON here. The app will read it and pre-fill all 
-            phases automatically.
+            Complete the Engine research workflow in an LLM, including reference-media
+            analysis, then import its production JSON here. The app validates the evidence
+            and uses it automatically when synchronizing narration, directing scenes, and
+            generating prompts.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button 
@@ -199,7 +200,7 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
         <div className="grid sm:grid-cols-[1fr_auto] gap-3">
           <Button className="relative h-14 font-bold tracking-widest shadow-lg shadow-primary/20">
             <FileJson className="h-5 w-5 mr-2"/>IMPORT PRODUCTION JSON
-            <input type="file" accept=".json,application/json" className="absolute inset-0 opacity-0 cursor-pointer" onChange={event=>{const file=event.target.files?.[0]; if(file) handleImportBrief(file); event.currentTarget.value='';}}/>
+            <input type="file" accept=".json,application/json" aria-label="Import Engine production JSON" className="absolute inset-0 opacity-0 cursor-pointer" onChange={event=>{const file=event.target.files?.[0]; if(file) handleImportBrief(file); event.currentTarget.value='';}}/>
           </Button>
           <Button variant="outline" className="h-14" onClick={()=>setShowPasteEditor(value=>!value)}>{showPasteEditor?'HIDE JSON EDITOR':'PASTE JSON (OPTIONAL)'}</Button>
         </div>

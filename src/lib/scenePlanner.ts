@@ -170,23 +170,12 @@ export function deriveGraphicSceneSpec(topic:TopicBrief|null|undefined,scene:Tim
 
 function candidatesFromV2(handoff: VisualProductionHandoffV2): Candidate[] {
   const all = handoff.visual_story_plan.chapters.flatMap(chapter => chapter.visual_beats.map(beat => ({ chapter, beat })));
-  const normalized:Candidate[]=all.map(({ chapter, beat }):Candidate => {
-    if (beat.generation_permission === 'T2V_ALLOWED' && beat.preferred_media_routes.includes('GENERATED_T2V')) return { chapter, beat, treatment: treatmentFor(beat), sourceBeatId: beat.beat_id };
-    if(GRAPHIC.has(beat.visual_family)){
-      const conceptual:V2VisualBeat={...beat,beat_id:`${beat.beat_id}__T2V_SAFE`,reference_asset_ids:[],preferred_media_routes:['GENERATED_T2V'],generation_permission:'T2V_ALLOWED',exact_factory_claim_allowed:false,must_not_show:[...beat.must_not_show,'readable labels, numbers, logos, maps, interfaces, or precise generated data']};
-      return {chapter,beat:conceptual,treatment:treatmentFor(conceptual),sourceBeatId:conceptual.beat_id};
-    }
-    if(OPERATIONAL.has(beat.visual_family)){
-      const contextual:V2VisualBeat={...beat,beat_id:`${beat.beat_id}__T2V_SAFE`,narrative_purpose:`Contextual generic operational demonstration: ${beat.narrative_purpose}`,reference_asset_ids:[],preferred_media_routes:['GENERATED_T2V'],generation_permission:'T2V_ALLOWED',exact_factory_claim_allowed:false,must_not_show:[...beat.must_not_show,'exact event recreation','identifiable real-world location','invented unit markings','weapon discharge','explosions or active combat']};
-      return {chapter,beat:contextual,treatment:'LIVE_ACTION_T2V',sourceBeatId:contextual.beat_id};
-    }
-    const visual_family:VisualFamily=beat.visual_family==='ARCHIVAL_REFERENCE'
-      ?beat.product_visibility==='DETAIL_ONLY'?'COMPONENT_MACRO':beat.product_visibility==='PARTIAL'?'ASSEMBLY_PROCESS':'HERO_PRODUCT'
-      :beat.visual_family;
-    const contextual:V2VisualBeat={...beat,beat_id:`${beat.beat_id}__T2V_SAFE`,visual_family,narrative_purpose:`Show a generic non-identifying visual for this supported concept: ${beat.narrative_purpose}`,reference_asset_ids:[],preferred_media_routes:['GENERATED_T2V'],generation_permission:'T2V_ALLOWED',exact_factory_claim_allowed:false,must_not_show:[...beat.must_not_show,'exact event recreation','identifiable location','invented markings or proprietary detail']};
-    return {chapter,beat:contextual,treatment:treatmentFor(contextual),sourceBeatId:contextual.beat_id};
-  });
-  return normalized;
+  // Reference discovery and visual inspection belong to the Engine. The app never
+  // converts a restricted/reference/editor route into synthetic footage. Stage 4
+  // is required to provide a separate generated-T2V alternative for that purpose.
+  return all
+    .filter(({beat})=>beat.generation_permission==='T2V_ALLOWED'&&beat.preferred_media_routes.includes('GENERATED_T2V'))
+    .map(({chapter,beat})=>({chapter,beat,treatment:treatmentFor(beat),sourceBeatId:beat.beat_id}));
 }
 
 function legacyCandidates(topic: TopicBrief): Candidate[] {
@@ -315,6 +304,7 @@ export function buildDocumentaryScenePlan(topic: TopicBrief, scenes: TimedScene[
   const sourceCandidates = handoff ? candidatesFromV2(handoff) : legacyCandidates(topic);
   const candidates=sourceCandidates.filter(candidate=>operationalEligible||!OPERATIONAL.has(candidate.beat.visual_family)||!candidate.sourceBeatId.startsWith('SYNTH_'));
   const stages = handoff?.production_stages || [];
+  const rhythm=handoff?.visual_story_plan.rhythm_policy;
   const chapterAssignments=alignScenesToChapters(handoff,scenes);
   const aerialScene=selectAerialScene(scenes,chapterAssignments,candidates);
   const graphicScenes=selectGraphicScenes(scenes,chapterAssignments,candidates);
@@ -366,7 +356,12 @@ export function buildDocumentaryScenePlan(topic: TopicBrief, scenes: TimedScene[
         if(previous.environment_ref===env)score+=5;
         if(previousOrder!==undefined&&beat.beat_order<previousOrder)score-=28;
       }
-      if(runLength(plan.map(item=>item.visual_family),beat.visual_family)>=5)score-=12;
+      const familyRun=runLength(plan.map(item=>item.visual_family),beat.visual_family);
+      const environmentRun=runLength(plan.map(item=>item.environment_ref),env);
+      const fullRun=beat.product_visibility==='FULL'?runLength(plan.map(item=>item.product_visibility),'FULL'):0;
+      if(familyRun>=Math.max(1,rhythm?.maximum_consecutive_same_visual_family??5))score-=90;
+      if(environmentRun>=Math.max(1,rhythm?.maximum_consecutive_same_environment_without_new_information??6))score-=55;
+      if(beat.product_visibility==='FULL'&&fullRun>=Math.max(1,rhythm?.maximum_consecutive_full_product_scenes??4))score-=70;
       return {candidate,stage,env,score};
     }).sort((a,b)=>b.score-a.score||a.candidate.beat.beat_order-b.candidate.beat.beat_order);
     const chosen=scored[0];
@@ -385,6 +380,12 @@ export function buildDocumentaryScenePlan(topic: TopicBrief, scenes: TimedScene[
       energy_level:showdownRole?SHOWDOWN_ENERGY[showdownRole]:'MEDIUM',
       camera_platform:showdownRole?SHOWDOWN_PLATFORM[showdownRole]:null,
       graphic_spec:null,
+      reference_asset_ids:[...beat.reference_asset_ids],
+      required_visible_features:[...beat.must_show],
+      forbidden_elements:[...beat.must_not_show,...beat.negative_constraints],
+      continuity_requirements:[...beat.continuity_requirements],
+      alignment_source:'ENGINE_BEAT',
+      alignment_claim:beat.narrative_purpose,
     };
     planItem.graphic_spec=deriveGraphicSceneSpec(topic,scene,planItem);
     plan.push(planItem);

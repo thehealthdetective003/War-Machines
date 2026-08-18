@@ -83,6 +83,17 @@ test('V2 semantic validation reports all cross-reference categories with readabl
   }
 });
 
+test('referenced visual evidence must contain Engine-inspected observations and usage limits',()=>{
+  const value:any=clone(template);value.production_stages[0].visual_evidence.reference_asset_ids=['REF_001'];
+  const result=validateVisualProductionHandoff(value);assert.equal(result.valid,false);
+  for(const field of ['product_or_component','exact_variant_or_configuration','production_stage','view_angle','source_page_url','publisher_or_owner','visible_geometry_features','allowed_usage','forbidden_usage','recommended_media_routes','confidence'])assert.ok(result.semanticErrors.some(error=>error.path.includes(`/reference_assets/0/${field}`)),`missing evidence error for ${field}`);
+});
+
+test('restricted beats require an Engine-authored generated-T2V alternative',()=>{
+  const value:any=clone(template);const beat=value.visual_story_plan.chapters[0].visual_beats[0];beat.generation_permission='REFERENCE_REQUIRED';beat.preferred_media_routes=['REFERENCE_IMAGE_I2V'];
+  const result=validateVisualProductionHandoff(value);assert.ok(result.semanticErrors.some(error=>error.message.includes('requires a separate generated-T2V alternative')));
+});
+
 test('legacy V1 and adaptive briefs remain accepted', () => {
   assert.equal(validateVisualProductionHandoff(LEGACY_PRODUCTION_TEMPLATE).status, 'Valid Legacy V1');
   assert.equal(validateVisualProductionHandoff({ topic: { title: 'Legacy topic' } }).status, 'Valid Legacy V1');

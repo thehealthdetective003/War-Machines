@@ -25,11 +25,10 @@ test('preserves coherent manufacturing runs instead of forcing a new family ever
   assert.ok(plan.every(item=>item.beat_id.endsWith('__SEMANTIC_FALLBACK')));
 });
 
-test('substitutes a reference-only beat with a T2V-safe plan item',()=>{
+test('rejects a handoff that offers only a restricted reference beat',()=>{
   const raw:any=JSON.parse(JSON.stringify(template)); const beat=raw.visual_story_plan.chapters[0].visual_beats[0];
   beat.generation_permission='REFERENCE_REQUIRED';beat.preferred_media_routes=['REFERENCE_IMAGE_I2V'];
-  const plan=buildDocumentaryScenePlan(normalizeProductionHandoff(raw),scenes(1));
-  assert.equal(plan.length,1);assert.notEqual(plan[0].beat_id,beat.beat_id);assert.ok(['LIVE_ACTION_T2V','STATIC_GRAPHIC_T2V','MOTION_GRAPHIC_T2V'].includes(plan[0].visual_treatment));
+  assert.throws(()=>buildDocumentaryScenePlan(normalizeProductionHandoff(raw),scenes(1)),/does not contain any visual beats/i);
 });
 
 test('plans 8-second and partial-duration windows without changing scene numbers',()=>{
@@ -58,10 +57,12 @@ test('uses operational footage only for VO that describes active operation',()=>
   assert.ok(plan.slice(2).every(item=>item.showdown_role===null));
 });
 
-test('creates T2V-safe contextual alternatives for reference-only operational events',()=>{
+test('uses the Engine-provided T2V alternative instead of synthesizing a reference-only event',()=>{
   const input=[{number:1,start:0,end:10,duration:10,text:'The fighter accelerates for takeoff and lifts into a controlled climb.',silent:false}];
-  const plan=buildDocumentaryScenePlan(operationalTopic('fighter aircraft',true),input);const opening=plan.find(item=>item.visual_family==='OPERATIONAL_CONTEXT');
-  assert.ok(opening);assert.match(opening!.beat_id,/__T2V_SAFE$/);
+  const topic:any=operationalTopic('fighter aircraft',true);const chapter=topic._production_handoff.visual_story_plan.chapters[0];const restricted=chapter.visual_beats.find((beat:any)=>beat.beat_id==='OP_HOOK');
+  chapter.visual_beats.push({...restricted,beat_id:'OP_HOOK_CONTEXTUAL',generation_permission:'T2V_ALLOWED',preferred_media_routes:['GENERATED_T2V'],reference_asset_ids:[],exact_factory_claim_allowed:false,narrative_purpose:'Generic non-identifying controlled takeoff and climb'});
+  const plan=buildDocumentaryScenePlan(topic,input);const opening=plan.find(item=>item.visual_family==='OPERATIONAL_CONTEXT');
+  assert.ok(opening);assert.equal(opening!.beat_id,'OP_HOOK_CONTEXTUAL');assert.doesNotMatch(opening!.beat_id,/__T2V_SAFE$/);
 });
 
 test('allows at most one factory aerial and only where the VO identifies the facility',()=>{

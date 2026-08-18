@@ -36,6 +36,16 @@ const sentence = (value: unknown): string => {
   text=text[0].toUpperCase()+text.slice(1);
   return /[.!?]$/.test(text) ? text : `${text}.`;
 };
+const truncateWords=(value:unknown,limit:number):string=>{
+  const parts=cleanSpace(value).split(/\s+/).filter(Boolean);
+  return parts.length>limit?`${parts.slice(0,limit).join(' ').replace(/[,;:]+$/,'')}.`:cleanSpace(value);
+};
+const truncateFragment=(value:unknown,limit:number):string=>truncateWords(value,limit).replace(/[.]+$/,'');
+const stripCameraAction=(value:unknown):string=>cleanSpace(value)
+  .replace(/\b(?:the\s+)?(?:forward\s+)?aerial\s+(?:movement|push[- ]?in|glide)\b/gi,'the view')
+  .replace(/(?:^|[.;]\s*)(?:the\s+)?(?:aerial\s+)?camera\s+(?:continues?\s+(?:its\s+)?(?:smooth\s+)?|slowly\s+)?(?:pan(?:s|ning)?|track(?:s|ing)?|(?:forward\s+)?(?:aerial\s+)?glide(?:s|ing)?|push(?:es)?\s+in|pull(?:s)?\s+back|rise(?:s)?|crane(?:s)?|move(?:s)?)[^.;]*/gi,' ')
+  .replace(/\s+/g,' ').replace(/^[.;,\s]+|[.;,\s]+$/g,'');
+const article=(value:string)=>/^[aeiou]/i.test(value)?'an':'a';
 
 const scaleMap:Array<[RegExp,string]>=[
   [/\bextreme\s+wide\b/i,'extreme-wide'],[/\bmedium\s+close\s*up\b/i,'medium close-up'],[/\bmedium\s+wide\b/i,'medium-wide'],[/\bclose\s*up\b/i,'close-up'],[/\bmacro\b/i,'macro close-up'],[/\bwide\b/i,'wide'],[/\bmedium\b/i,'medium'],
@@ -153,17 +163,17 @@ export function canonicalIdentitySignature(topic:TopicBrief|null):string {
     immutable.slice(0,2),
     geometry.slice(0,2),
     proportions.slice(0,2),
-  ],7);
-  return sentence(anchors.length?`Preserve the same exact ${name} design in every clip: ${naturalList(anchors)}`:`Preserve the same exact ${name} design and proportions in every clip`);
+  ],2).map(value=>truncateFragment(value,12));
+  return sentence(truncateWords(anchors.length?`Preserve the exact ${name}: ${naturalList(anchors)}`:`Preserve the exact ${name} design and proportions`,42));
 }
 
 function viewpointIdentitySentence(resolved:ResolvedProductionScene):string {
-  const anchors=preferSpecific(resolved.identity,4);
+  const anchors=preferSpecific(resolved.identity,2).map(value=>truncateFragment(value,10));
   return anchors.length?sentence(`From this ${resolved.camera.viewpoint} viewpoint, keep ${naturalList(anchors)} clearly visible`):'';
 }
 
 function stateSentence(direction:SceneDirection,resolved:ResolvedProductionScene,topic:TopicBrief|null):string {
-  const presentItems=preferSpecific(resolved.present,5),absentItems=preferSpecific(resolved.absent,5),exposedItems=preferSpecific(resolved.exposed,4);
+  const presentItems=preferSpecific(resolved.present,3),absentItems=preferSpecific(resolved.absent,4),exposedItems=preferSpecific(resolved.exposed,2);
   const present=presentItems.length?`show ${naturalList(presentItems)}`:`show ${direction.product_visual_state}`;
   const absent=absentItems.length?` Do not show ${naturalList(absentItems)}`:'';
   const exposed=exposedItems.length?` Keep ${naturalList(exposedItems)} visibly unfinished or exposed`:'';
@@ -224,10 +234,10 @@ export function normalizeOmniSections(raw:any,direction:SceneDirection,topic:Top
   const inferred=resolved.inferred.length&&cleanSpace(direction.environment_description).length<45?`Use a plausible non-identifying production environment; do not invent proprietary internal layouts`:'';
   const factory=/factory|assembly|production|hangar|workshop/i.test(`${direction.environment_description} ${resolved.environment?.facility_type||''}`);
   const carrier=/carrier|maritime|deck/i.test(direction.environment_description);
-  const sound=treatment!=='LIVE_ACTION_T2V'?'Use restrained abstract documentary sound design synchronized only to the visible graphic motion':operational&&/helicopter|rotorcraft|rotor/.test(productClass)?'Generate synchronized rotor, engine, airflow, and environmental sound, including physically matched downwash where visible':operational&&/aircraft|airplane|fighter|jet|uas|uav|drone/.test(productClass)?'Generate synchronized propulsion, airflow, wind, and control-surface sound appropriate to the maneuver':carrier?'Generate synchronized maritime deck ambience with wind, distant machinery, restrained deck-equipment movement, and physically matched mechanical sound':factory?'Generate synchronized factory ambience with distant ventilation, restrained machinery hum, soft tool contact, and subtle footsteps':'Generate realistic synchronized environmental and mechanical ambience appropriate to the visible action';
-  const rawSubject=cleanSpace(raw?.subject)||direction.subject;
+  const sound=treatment!=='LIVE_ACTION_T2V'?'Use restrained abstract sound synchronized to the visible graphic motion':operational&&/helicopter|rotorcraft|rotor/.test(productClass)?'Generate synchronized rotor, engine, airflow, and physically matched downwash sound':operational&&/aircraft|airplane|fighter|jet|uas|uav|drone/.test(productClass)?'Generate synchronized propulsion, airflow, wind, and control-surface sound':carrier?'Generate synchronized maritime deck ambience with wind and restrained machinery':factory?'Generate synchronized restrained factory machinery, tool-contact, ventilation, and footstep ambience':'Generate realistic ambient and mechanical sound synchronized to the visible action';
+  const rawSubject=(cleanSpace(raw?.subject)||direction.subject).replace(/\b(?:FULL|PARTIAL|DETAIL_ONLY|NONE) product visibility\.?/gi,'').trim();
   const rawEnvironment=cleanSpace(raw?.environment)||direction.environment_description;
-  const rawStyle=cleanSpace(raw?.style_lighting)||direction.lighting_and_material;
+  const rawStyle=(cleanSpace(raw?.style_lighting)||direction.lighting_and_material).replace(/\b(?:LIVE_ACTION_T2V|STATIC_GRAPHIC_T2V|MOTION_GRAPHIC_T2V)\.?/g,'').trim();
   const coveredStateTerms=new Set((direction.state==='C'?[]:[...resolved.present,...resolved.absent,...resolved.exposed]).map(key));
   ['dialogue','narration','music','readable generated text'].forEach(value=>coveredStateTerms.add(key(value)));
   const exclusionCandidates=[
@@ -242,7 +252,9 @@ export function normalizeOmniSections(raw:any,direction:SceneDirection,topic:Top
   const speedAlreadyExpressed=resolved.camera.speed==='slow'&&resolved.camera.behavior.startsWith('slow ');
   const speedClause=resolved.camera.speed&&resolved.camera.behavior!=='locked camera'&&!speedAlreadyExpressed?` at ${resolved.camera.speed} speed`:'';
   const temporal=direction.temporal_action;
-  const temporalAction=temporal?`${temporal.opening_state}. ${temporal.primary_motion}; ${temporal.physical_interaction}. Mid-shot, ${temporal.mid_shot_progression}. End with ${temporal.ending_state}`:cleanSpace(raw?.action)||direction.primary_action;
+  const cleanTemporal=temporal?[stripCameraAction(temporal.opening_state),stripCameraAction(temporal.primary_motion),stripCameraAction(temporal.physical_interaction),stripCameraAction(temporal.mid_shot_progression),stripCameraAction(temporal.ending_state)]:[];
+  const temporalParts=temporal?[cleanTemporal[0],cleanTemporal[1],cleanTemporal[2],cleanTemporal[3]?`Mid-shot, ${cleanTemporal[3]}`:'',`End with ${cleanTemporal[4]||'the physical action settled in one stable configuration'}`]:[stripCameraAction(cleanSpace(raw?.action)||direction.primary_action)];
+  const temporalAction=temporalParts.filter(Boolean).map(sentence).join(' ');
   const showdownAction=showdownPurpose(direction);
   const platform=direction.camera_platform?.toLowerCase().replaceAll('_',' ');
   const graphicSpec=direction.graphic_spec;
@@ -252,19 +264,22 @@ export function normalizeOmniSections(raw:any,direction:SceneDirection,topic:Top
   const productState=visibility==='NONE'?'':visibility==='DETAIL_ONLY'?(moduleIdentity.length?sentence(`Show only this component detail: ${naturalList(moduleIdentity)}`):sentence(direction.product_visual_state)):visibility==='FULL'?[canonicalIdentitySignature(topic),viewpointIdentitySentence(resolved)].filter(Boolean).join(' '):stateSentence(direction,resolved,topic);
   const graphicSubject=treatment==='STATIC_GRAPHIC_T2V'?'An unlabeled documentary technical composition of clean geometric forms and material layers':treatment==='MOTION_GRAPHIC_T2V'?'An unlabeled documentary motion graphic of components, paths, layers, and mechanical relationships':'';
   const sections:OmniPromptSections={
-    cinematography:graphicSpec?`Use a stable 16:9 flat vector composition with ${graphicCompositionPhrase(graphicSpec.composition)} and no orbit, handheld motion, lens change, or artificial depth distortion`:treatment==='STATIC_GRAPHIC_T2V'?'Use a stable orthographic documentary composition with only minimal parallax and a restrained light pass':treatment==='MOTION_GRAPHIC_T2V'?'Use a stable technical viewpoint with one controlled graphic camera drift':`${platform?`Film from a physically credible ${platform}. `:''}Use a ${resolved.camera.shotScale} ${resolved.camera.viewpoint} view on a ${resolved.camera.lens} lens, with one ${resolved.camera.behavior}${speedClause}`,
+    cinematography:graphicSpec?`Use a stable 16:9 flat vector composition with ${graphicCompositionPhrase(graphicSpec.composition)} and no orbit, handheld motion, lens change, or artificial depth distortion`:treatment==='STATIC_GRAPHIC_T2V'?'Use a stable orthographic documentary composition with only minimal parallax and a restrained light pass':treatment==='MOTION_GRAPHIC_T2V'?'Use a stable technical viewpoint with one controlled graphic camera drift':`${platform?`Film from a physically credible ${platform}. `:''}Use ${article(resolved.camera.shotScale)} ${resolved.camera.shotScale} ${resolved.camera.viewpoint.replace(/\s+view$/i,'')} view on a ${resolved.camera.lens} lens, with one ${resolved.camera.behavior}${speedClause}`,
     subject:graphicSpec?`Create a premium technical vector explainer for one claim: ${graphicSpec.visual_claim}${graphicAnnotations?`, using ${graphicAnnotations}`:''}`:graphicSubject||(/\b(?:is|are|stands|sits|rests|remains|appears|moves|shows)\b/i.test(rawSubject)?rawSubject:`The scene shows ${rawSubject}`),
     action:[showdownAction,graphicAction].filter(Boolean).join('. '),
-    environment:treatment==='LIVE_ACTION_T2V'?[/\b(?:is|are|inside|within|across|on the|in the)\b/i.test(rawEnvironment)?rawEnvironment:`Set the shot in ${rawEnvironment}`,inferred].filter(Boolean).join('. '):'Use a clean neutral technical space with no literal factory set, map, interface, or readable annotation',
+    environment:treatment==='LIVE_ACTION_T2V'?[/^(?:set|place|film|show)\b/i.test(rawEnvironment)||/\b(?:is|are|inside|within|across|on the|in the)\b/i.test(rawEnvironment)?rawEnvironment:`Set the shot in ${rawEnvironment}`,inferred].filter(Boolean).join('. '):'Use a clean neutral technical space with no literal factory set, map, interface, or readable annotation',
     style_lighting:graphicSpec?'Use geometric silhouettes, minimal texture, restrained outlines, two- or three-tone cel shading, pale cyan and sky blue, cool gray and charcoal, one red annotation accent, and limited yellow-orange only for active heat or energy':treatment==='LIVE_ACTION_T2V'?(/^(?:use|render|light|keep)\b/i.test(rawStyle)?rawStyle:`Use ${rawStyle}`):'Use restrained documentary colors, precise edges, controlled depth, and physically plausible material shading',
     product_state:productState,
     sound,
-    exclusions:naturalList(uniqueStrings([cleanExclusions,treatment!=='LIVE_ACTION_T2V'?['readable labels','numbers','logos','maps','fake user interfaces','precise generated data']:[],graphicSpec?['blank label cards or editor placeholders','typography or speech bubbles','photorealistic or cinematic 3D materials','moving backgrounds','morphing or duplicated geometry','childish cartoon proportions']:[],visibility==='NONE'?['the finished product or product silhouette']:[],operational?['weapon discharge','explosions or active combat','impossible aerobatics','changing product configuration','invented unit markings','exact event recreation','identifiable location claims']:[],direction.showdown_role?['morphing aircraft geometry','impossible camera paths','camera passing through the aircraft','unnatural sideways sliding','unverified flares or external stores']:[]])),
+    exclusions:naturalList(uniqueStrings([direction.showdown_role?['morphing aircraft geometry','impossible camera paths','camera passing through the aircraft','unnatural sideways sliding','unverified flares or external stores']:[],operational?['weapon discharge','explosions or active combat','impossible aerobatics','changing product configuration','invented unit markings','exact event recreation','identifiable location claims']:[],graphicSpec?['blank label cards or editor placeholders','typography or speech bubbles','photorealistic or cinematic 3D materials','moving backgrounds','morphing or duplicated geometry','childish cartoon proportions']:[],treatment!=='LIVE_ACTION_T2V'?['readable labels','numbers','logos','maps','fake user interfaces','precise generated data']:[],cleanExclusions,visibility==='NONE'?['the finished product or product silhouette']:[]]).slice(0,12).map(value=>truncateFragment(value.replace(/[.,;]+$/,''),16))),
   };
   return {sections,resolved};
 }
 
 export function compileOmniPrompt(sections:OmniPromptSections,direction:SceneDirection):string {
+  // A short generation model needs ordered visual instructions, not a raw
+  // evidence dump. Upstream normalizers rank and compact identity/exclusions;
+  // this compiler keeps the resulting complete clauses intact.
   const parts=[`${Number(generatedClipDuration(direction).toFixed(3))}-second continuous shot.`,sentence(sections.cinematography),sentence(sections.subject),sentence(sections.action),sentence(sections.environment),sentence(sections.style_lighting),sentence(sections.product_state),sentence(sections.sound),sentence('Exclude dialogue, narration, music, and readable generated text'),sections.exclusions?sentence(`Exclude ${sections.exclusions.replace(/^(exclude|no|avoid)\s+/i,'')}`):''];
   const seen=new Set<string>();
   return parts.filter(Boolean).filter(part=>{const normalized=key(part);if(seen.has(normalized))return false;seen.add(normalized);return true;}).join(' ').replace(/\s+/g,' ').replace(/\.\s*\./g,'.').replace(/Exclude\s+(?:Do not|No|Avoid)\s+/gi,'Exclude ').trim();

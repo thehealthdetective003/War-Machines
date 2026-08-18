@@ -54,6 +54,21 @@ export function validateV2Semantics(data:VisualProductionHandoffV2):HandoffValid
   errors.push(...duplicateIssues(chapters,'chapter_id','/visual_story_plan/chapters'));
   const beats=chapters.flatMap(chapter=>chapter.visual_beats||[]);
   errors.push(...duplicateIssues(beats,'beat_id','/visual_story_plan/chapters/*/visual_beats'));
+  const referencedAssets=new Set<string>();
+  data.production_stages.forEach(stage=>(stage.visual_evidence?.reference_asset_ids||[]).forEach(id=>referencedAssets.add(id)));
+  beats.forEach(beat=>(beat.reference_asset_ids||[]).forEach(id=>referencedAssets.add(id)));
+  data.reference_assets.forEach((asset,index)=>{
+    if(!referencedAssets.has(asset.asset_id))return;
+    const base=`/reference_assets/${index}`;
+    const requiredText:Array<keyof typeof asset>=['product_or_component','exact_variant_or_configuration','production_stage','view_angle','source_page_url','publisher_or_owner'];
+    requiredText.forEach(field=>{if(!String(asset[field]||'').trim())errors.push(issue(`${base}/${String(field)}`,'Referenced visual evidence must be populated by Engine research.','contract'));});
+    if(asset.visual_verification==='FAIL')errors.push(issue(`${base}/visual_verification`,'A failed visual reference cannot support a stage or beat.','contract'));
+    if(asset.confidence==='UNKNOWN')errors.push(issue(`${base}/confidence`,'A referenced visual asset cannot have UNKNOWN confidence.','contract'));
+    if(!asset.visible_geometry_features?.length)errors.push(issue(`${base}/visible_geometry_features`,'Engine visual inspection must record at least one camera-visible feature.','contract'));
+    if(!asset.allowed_usage?.length)errors.push(issue(`${base}/allowed_usage`,'Referenced visual evidence must state its allowed usage.','contract'));
+    if(!asset.forbidden_usage?.length)errors.push(issue(`${base}/forbidden_usage`,'Referenced visual evidence must state its forbidden usage.','contract'));
+    if(!asset.recommended_media_routes?.length)errors.push(issue(`${base}/recommended_media_routes`,'Referenced visual evidence must state at least one media route.','contract'));
+  });
   const durationPath='/visual_story_plan/rhythm_policy/preferred_usable_scene_duration_seconds';
   const projectDuration=v2HandoffSceneDuration(data);
   const durationRange=data.visual_story_plan?.rhythm_policy?.preferred_usable_scene_duration_seconds;
@@ -91,6 +106,11 @@ export function validateV2Semantics(data:VisualProductionHandoffV2):HandoffValid
       errors.push(...referenceIssues(beat.applicable_stage_ids,`${beatBase}/applicable_stage_ids`,stages,'production stage'));
       errors.push(...referenceIssues(beat.environment_ids,`${beatBase}/environment_ids`,environments,'environment'));
       errors.push(...referenceIssues(beat.reference_asset_ids,`${beatBase}/reference_asset_ids`,assets,'reference asset'));
+      const generated=beat.generation_permission==='T2V_ALLOWED'&&beat.preferred_media_routes.includes('GENERATED_T2V');
+      if(!generated){
+        const alternative=chapter.visual_beats.some(candidate=>candidate.beat_id!==beat.beat_id&&candidate.generation_permission==='T2V_ALLOWED'&&candidate.preferred_media_routes.includes('GENERATED_T2V')&&(candidate.story_function===beat.story_function||candidate.narrative_purpose===beat.narrative_purpose));
+        if(!alternative)errors.push(issue(beatBase,'Restricted/reference/editor beat requires a separate generated-T2V alternative with the same story function or narrative purpose.','contract'));
+      }
     });
   });
   return errors;

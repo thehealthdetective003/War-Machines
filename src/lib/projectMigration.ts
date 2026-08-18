@@ -35,25 +35,26 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     graphicSubtypes.includes(item?.graphic_spec?.graphic_subtype)&&item?.graphic_spec?.visual_claim&&item?.graphic_spec?.composition&&item?.graphic_spec?.motion_pattern
     &&Array.isArray(item?.graphic_spec?.annotation_devices)&&[1,2,3].includes(item?.graphic_spec?.maximum_animated_elements)&&item?.graphic_spec?.text_policy==='NO_GENERATED_TEXT'
   );
-  // Schema 9 introduces VO-authoritative documentary planning. Schema 10 keeps
-  // transcript-window timing separate from the full generated clip duration.
-  const planValid = raw.projectSchemaVersion >= 9 && !!transcription && rawPlan.length === transcription.scenes.length && rawPlan.every((item:any,index:number)=>
+  // Schema 11 introduces Gemini-validated narrative-group alignment and keeps
+  // Engine evidence constraints immutable through direction/prompt generation.
+  const planValid = raw.projectSchemaVersion >= 11 && !!transcription && rawPlan.length === transcription.scenes.length && rawPlan.every((item:any,index:number)=>
     item?.number===index+1&&item?.chapter_id&&item?.beat_id&&item?.visual_family&&item?.story_function&&item?.visual_treatment&&item?.product_visibility&&item?.stage_id&&item?.environment_ref&&['A','B','C'].includes(item?.state)
     &&(item?.showdown_role===null||showdownRoles.includes(item?.showdown_role))&&['LOW','MEDIUM','HIGH'].includes(item?.energy_level)
-    &&(item?.camera_platform===null||cameraPlatforms.includes(item?.camera_platform))&&graphicSpecValid(item)
+    &&(item?.camera_platform===null||cameraPlatforms.includes(item?.camera_platform))&&graphicSpecValid(item)&&['ENGINE_BEAT','VO_FALLBACK'].includes(item?.alignment_source)
+    &&typeof item?.alignment_claim==='string'&&Array.isArray(item?.reference_asset_ids)&&Array.isArray(item?.required_visible_features)&&Array.isArray(item?.forbidden_elements)&&Array.isArray(item?.continuity_requirements)
   );
   const rawDirections = Array.isArray(raw.sceneDirections) ? raw.sceneDirections : [];
   const planByNumber = new Map(rawPlan.map((item:any)=>[Number(item.number),item]));
   const repairedDirections = planValid ? rawDirections.map((item:any)=>{
     const plan:any=planByNumber.get(Number(item?.number));
-    return plan ? {...item,generation_duration_seconds:sceneDuration,chapter_id:plan.chapter_id,beat_id:plan.beat_id,visual_family:plan.visual_family,story_function:plan.story_function,visual_treatment:plan.visual_treatment,product_visibility:plan.product_visibility,showdown_role:plan.showdown_role,energy_level:plan.energy_level,camera_platform:plan.camera_platform,graphic_spec:plan.graphic_spec,stage_id:plan.stage_id,environment_ref:plan.environment_ref,state:plan.state,required_visible_features:ensureRequiredVisibleFeatures(item,plan)} : item;
+    return plan ? {...item,generation_duration_seconds:sceneDuration,chapter_id:plan.chapter_id,beat_id:plan.beat_id,visual_family:plan.visual_family,story_function:plan.story_function,visual_treatment:plan.visual_treatment,product_visibility:plan.product_visibility,showdown_role:plan.showdown_role,energy_level:plan.energy_level,camera_platform:plan.camera_platform,graphic_spec:plan.graphic_spec,reference_asset_ids:plan.reference_asset_ids,alignment_source:plan.alignment_source,alignment_confidence:plan.alignment_confidence,alignment_claim:plan.alignment_claim,stage_id:plan.stage_id,environment_ref:plan.environment_ref,state:plan.state,required_visible_features:ensureRequiredVisibleFeatures(item,plan),forbidden_elements:[...new Set([...(plan.forbidden_elements||[]),...(item.forbidden_elements||[])])]} : item;
   }) : rawDirections;
   const directionsValid = planValid && !!transcription && validateSceneDirections(repairedDirections, transcription.scenes, rawPlan, sceneDuration).length === 0;
   const imageMode = raw.phase4Mode === 'image-animation';
   const profileSupported = raw.projectSchemaVersion >= 4 && (raw.t2vPromptProfile === 'omni-flash' || raw.t2vPromptProfile === 'veo-flow');
   const rawPrompts = Array.isArray(raw.visualPrompts) ? raw.visualPrompts : [];
   const promptNumbers = new Set<number>();
-  const promptsCompatible = raw.projectSchemaVersion >= 10 && directionsValid && rawPrompts.every((item:any) => {
+  const promptsCompatible = raw.projectSchemaVersion >= 11 && directionsValid && rawPrompts.every((item:any) => {
     const number = Number(item?.number);
     const valid = Number.isInteger(number) && number >= 1 && number <= transcription.scenes.length && !promptNumbers.has(number) && typeof item?.video_prompt === 'string' && item.video_prompt.trim();
     if (valid) promptNumbers.add(number);
@@ -94,11 +95,11 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     demoState: 'idle', demoScenes: [], demoSceneNumbers: [],
     t2vPromptProfile: profileSupported ? raw.t2vPromptProfile : 'omni-flash',
     generationSession,
-    projectSchemaVersion: 10,
+    projectSchemaVersion: 11,
   };
   const reset = timingChanged || imageMode || !profileSupported || !directionsValid || !preserveOutput;
-  const planningUpgrade = raw.projectSchemaVersion < 9 && rawPlan.length > 0;
+  const planningUpgrade = raw.projectSchemaVersion < 11 && rawPlan.length > 0;
   return { state, message: planningUpgrade
-    ? 'Project content and transcript were preserved. Rebuild Phase 2 directions with the new VO-synchronized documentary planner.'
+    ? 'Project content and transcript were preserved. Phase 2 output was reset for automatic narrative-group visual realignment.'
     : reset && raw.topic ? 'Project migrated to the timestamped T2V pipeline; incompatible downstream output was reset.' : undefined };
 }

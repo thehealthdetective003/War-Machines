@@ -240,6 +240,14 @@ export interface PlannedScene {
   energy_level: CinematicEnergy;
   camera_platform: CameraPlatform | null;
   graphic_spec: GraphicSceneSpec | null;
+  /** Engine-owned evidence and constraints copied locally so Gemini cannot discard them. */
+  reference_asset_ids?: string[];
+  required_visible_features?: string[];
+  forbidden_elements?: string[];
+  continuity_requirements?: string[];
+  alignment_source?: 'ENGINE_BEAT' | 'VO_FALLBACK';
+  alignment_confidence?: number;
+  alignment_claim?: string;
 }
 export interface TemporalAction {
   opening_state: string;
@@ -267,6 +275,10 @@ export interface SceneDirection {
   energy_level?: CinematicEnergy;
   camera_platform?: CameraPlatform | null;
   graphic_spec?: GraphicSceneSpec | null;
+  reference_asset_ids?: string[];
+  alignment_source?: 'ENGINE_BEAT' | 'VO_FALLBACK';
+  alignment_confidence?: number;
+  alignment_claim?: string;
   stage_id: string;
   state: 'A' | 'B' | 'C';
   subject: string;

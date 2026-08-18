@@ -58,8 +58,9 @@ export function buildFocusedProductionContext(topic: TopicBrief | null, directio
   if(!handoff||typeof handoff!=='object') return null;
   const stageIds=new Set(directions.map(direction=>direction.stage_id).filter(Boolean));
   const environmentIds=new Set(directions.map(direction=>direction.environment_ref).filter(Boolean));
+  const beatIds=new Set(directions.map(direction=>direction.beat_id).filter(Boolean));
   const stages=(Array.isArray(handoff.production_stages)?handoff.production_stages:[]).filter((stage:any)=>stageIds.has(stage.stage_id));
-  stages.forEach((stage:any)=>{if(stage.environment_id)environmentIds.add(stage.environment_id);});
+  stages.forEach((stage:any)=>{(stage.environment_ids||[]).forEach((id:string)=>environmentIds.add(id));if(stage.environment_id)environmentIds.add(stage.environment_id);});
   const moduleIds=new Set<string>();
   const referenceIds=new Set<string>();
   stages.forEach((stage:any)=>{
@@ -67,6 +68,9 @@ export function buildFocusedProductionContext(topic: TopicBrief | null, directio
     (stage.geometry_control?.secondary_geometry_module_ids||[]).forEach((id:string)=>moduleIds.add(id));
     (stage.visual_evidence?.reference_asset_ids||[]).forEach((id:string)=>referenceIds.add(id));
   });
+  directions.forEach(direction=>(direction.reference_asset_ids||[]).forEach(id=>referenceIds.add(id)));
+  const selectedBeats=(handoff.visual_story_plan?.chapters||[]).flatMap((chapter:any)=>chapter.visual_beats||[]).filter((beat:any)=>beatIds.has(beat.beat_id));
+  selectedBeats.forEach((beat:any)=>(beat.reference_asset_ids||[]).forEach((id:string)=>referenceIds.add(id)));
   return {
     schema:handoff.schema,
     product:handoff.product,
@@ -76,6 +80,7 @@ export function buildFocusedProductionContext(topic: TopicBrief | null, directio
     environments:(handoff.environments||[]).filter((environment:any)=>environmentIds.has(environment.environment_id)),
     geometry_modules:(handoff.geometry_modules||[]).filter((module:any)=>moduleIds.has(module.module_id)),
     reference_assets:(handoff.reference_assets||[]).filter((asset:any)=>referenceIds.has(asset.asset_id)),
+    selected_beats:selectedBeats,
     stage_transitions:(handoff.stage_transitions||[]).filter((transition:any)=>stageIds.has(transition.from_stage_id)||stageIds.has(transition.to_stage_id)),
   };
 }

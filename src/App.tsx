@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from 'next-themes';
 import { motion, AnimatePresence } from 'motion/react';
 import { Moon, Sun, CheckCircle2, FilePlus, FolderOpen, AlertCircle, FileUp, FileDown, Wrench, Boxes, AudioLines, WandSparkles, CircleDot, Layers3 } from 'lucide-react';
@@ -15,9 +15,6 @@ import {
   DialogFooter 
 } from '@/components/ui/dialog';
 import { AppState, PhaseType, ProjectCheckpoint, ProjectCheckpointReason } from './types';
-import { Phase1Topic } from './components/Phase1Topic';
-import { Phase2Script } from './components/Phase2Script';
-import { Phase4Visuals } from './components/Phase4Visuals';
 import { SettingsPanel } from './components/SettingsPanel';
 import { useSettings } from './components/SettingsContext';
 import { ProjectLibrary } from './components/ProjectLibrary';
@@ -26,13 +23,32 @@ import { toast } from 'sonner';
 import { resplitTranscription, resetDownstreamForTiming } from './lib/timedTranscript';
 import { migrateProject, projectSceneDuration } from './lib/projectMigration';
 import { idleGenerationSession } from './lib/generationSession';
+
+const Phase1Topic = lazy(() => import('./components/Phase1Topic').then(module => ({ default: module.Phase1Topic })));
+const Phase2Script = lazy(() => import('./components/Phase2Script').then(module => ({ default: module.Phase2Script })));
+const Phase4Visuals = lazy(() => import('./components/Phase4Visuals').then(module => ({ default: module.Phase4Visuals })));
+
 const PHASES = [
   { id: 1, label: 'Topic Brief', eyebrow: 'Foundation', description: 'Define the manufacturing subject', icon: Boxes, tone: 'violet' },
   { id: 2, label: 'Voice & Direction', eyebrow: 'Production', description: 'Synchronize narration and scenes', icon: AudioLines, tone: 'cyan' },
   { id: 3, label: 'T2V Prompts', eyebrow: 'Generation', description: 'Create production-ready prompts', icon: WandSparkles, tone: 'amber' },
 ];
+
+function WorkspaceLoader({ label = 'Preparing your project workspace' }: { label?: string }) {
+  return (
+    <div className="min-h-[420px] grid place-items-center p-8" role="status" aria-live="polite">
+      <div className="text-center space-y-4">
+        <div className="brand-mark mx-auto animate-pulse"><Layers3 className="h-5 w-5" /></div>
+        <div>
+          <div className="font-bold">{label}</div>
+          <div className="text-sm text-muted-foreground mt-1">Loading saved data and recovery checkpoints…</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 export const INITIAL_STATE: AppState = {
-  projectSchemaVersion: 10,
+  projectSchemaVersion: 11,
   id: undefined,
   projectName: 'Untitled Manufacturing Sequence',
   projectFormat: 'standard-lifecycle',
@@ -121,8 +137,9 @@ export default function App() {
           const duration=projectSceneDuration(raw,settings.sceneDurationSeconds);
           const migration=migrateProject(raw,INITIAL_STATE,duration);
           if(migration.state){
-            const interrupted=migration.state.generationSession.status==='running';
-            const hydrated=interrupted?{...migration.state,generationSession:{...migration.state.generationSession,status:'interrupted' as const,error:'Generation was interrupted before the current batch committed.'}}:migration.state;
+            const migrated=migration.message?await persistSnapshot(migration.state):migration.state;
+            const interrupted=migrated.generationSession.status==='running';
+            const hydrated=interrupted?{...migrated,generationSession:{...migrated.generationSession,status:'interrupted' as const,error:'Generation was interrupted before the current batch committed.'}}:migrated;
             savedStateRef.current=hydrated;currentStateRef.current=hydrated;setState(hydrated);
             setSettings(previous=>({...previous,sceneDurationSeconds:duration}));
             if(interrupted)setRecovery({project:hydrated,checkpoints:await getProjectCheckpoints(hydrated.id!)});
@@ -134,7 +151,7 @@ export default function App() {
         setStorageError(message);void recordDiagnostic('storage-initialize',error);
       }finally{setIsHydrated(true);}
     })();
-  },[isLoaded]);
+  },[isLoaded,persistSnapshot,setSettings,settings.sceneDurationSeconds]);
 
   const handleSave = useCallback(async () => {
     try {
@@ -194,16 +211,19 @@ export default function App() {
     }
   };
   const executeLoad = async (id: string) => {
-    const loaded = await loadProject(id);
-    if (loaded) {
-      const duration = projectSceneDuration(loaded, settings.sceneDurationSeconds);
-      const migration = migrateProject(loaded, INITIAL_STATE, duration);
-      const merged = migration.state;
-      if (!merged) {
-        toast.error('This project uses an unsupported production format. Only Standard Lifecycle projects can be loaded.');
-        setPendingAction(null);
+    try {
+      const loaded = await loadProject(id);
+      if (!loaded) {
+        toast.error('Failed to load project. The saved record may be unavailable in this browser profile.');
         return;
       }
+      const duration = projectSceneDuration(loaded, settings.sceneDurationSeconds);
+      const migration = migrateProject(loaded, INITIAL_STATE, duration);
+      if (!migration.state) {
+        toast.error('This project uses an unsupported production format. Only Standard Lifecycle projects can be loaded.');
+        return;
+      }
+      const merged = migration.message ? await persistSnapshot(migration.state) : migration.state;
       savedStateRef.current = merged;
       currentStateRef.current = merged;
       setState(merged);
@@ -212,10 +232,13 @@ export default function App() {
       toast.success(`Loaded: ${merged.topic?.topic?.title || merged.projectName}`);
       if (migration.message) toast.info(migration.message);
       setIsLibraryOpen(false);
-    } else {
-      toast.error("Failed to load project");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Project loading failed.';
+      toast.error(message);
+      void recordDiagnostic('project-load', error, { projectId: id });
+    } finally {
+      setPendingAction(null);
     }
-    setPendingAction(null);
   };
 
   const commitProjectState = useCallback(async (nextState: AppState, checkpointReason?: ProjectCheckpointReason) => {
@@ -246,7 +269,9 @@ export default function App() {
     }
   };
   const completedPhaseCount = PHASES.filter(phase => isPhaseComplete(phase.id)).length;
-  if (!isLoaded || !isHydrated) return null;
+  if (!isLoaded || !isHydrated) {
+    return <div className="app-shell min-h-screen bg-background text-foreground"><WorkspaceLoader /></div>;
+  }
   return (
     <div className="app-shell min-h-screen bg-background text-foreground flex flex-col relative">
       <SettingsPanel state={state} setState={setState} open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
@@ -323,7 +348,8 @@ export default function App() {
                 const duration = projectSceneDuration(restored, settings.sceneDurationSeconds);
                 const migration = migrateProject(restored, INITIAL_STATE, duration);
                 if (!migration.state) return;
-                savedStateRef.current = migration.state; currentStateRef.current = migration.state; setState(migration.state);
+                const migrated = migration.message ? await persistSnapshot(migration.state) : migration.state;
+                savedStateRef.current = migrated; currentStateRef.current = migrated; setState(migrated);
                 setSettings(previous => ({ ...previous, sceneDurationSeconds: duration })); setSaveMarker(value => value + 1); setRecovery(null);
                 toast.success(`Restored checkpoint ${index + 1} from ${new Date(checkpoint.savedAt).toLocaleString()}.`);
               })()}>RESTORE CHECKPOINT {index + 1} · {new Date(checkpoint.savedAt).toLocaleString()}</Button>
@@ -376,6 +402,7 @@ export default function App() {
               size="sm" 
               onClick={() => setIsLibraryOpen(true)} 
               className="flex text-muted-foreground hover:text-foreground h-9 rounded-xl"
+              aria-label="Open project library"
             >
               <FolderOpen className="h-4 w-4 mr-1.5" />
               <span className="hidden sm:inline">Library</span>
@@ -403,6 +430,7 @@ export default function App() {
               <input 
                 type="file" 
                 accept=".json" 
+                aria-label="Load Assembly Line project JSON"
                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" 
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -478,6 +506,7 @@ export default function App() {
               onClick={() => setIsSettingsOpen(true)} 
               className="h-9 w-9 text-primary hover:text-primary hover:bg-primary/10 rounded-xl border border-primary/15"
               title="Factory Toolbox"
+              aria-label="Open factory toolbox and settings"
             >
               <Wrench className="h-4 w-4" />
             </Button>
@@ -489,7 +518,7 @@ export default function App() {
         <div className="grid lg:grid-cols-[270px_minmax(0,1fr)] gap-5 xl:gap-7 items-start">
           <aside className="lg:sticky lg:top-[96px] space-y-4">
             <div className="workflow-panel">
-              <button onClick={() => setIsStepperOpen(open => !open)} className="lg:hidden w-full flex items-center justify-between p-4">
+              <button onClick={() => setIsStepperOpen(open => !open)} className="lg:hidden w-full flex items-center justify-between p-4" aria-expanded={isStepperOpen} aria-controls="production-workflow-steps">
                 <div className="text-left"><div className="eyebrow">Production workflow</div><div className="font-bold mt-1">Phase {activePhase?.id}: {activePhase?.label}</div></div>
                 <span className={`transition-transform ${isStepperOpen ? 'rotate-180' : ''}`}><svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M2 4.5L6 8.5L10 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
               </button>
@@ -498,12 +527,14 @@ export default function App() {
                 <div className="flex items-end justify-between mt-2"><span className="text-2xl font-extrabold">{completedPhaseCount}<span className="text-muted-foreground/50">/3</span></span><span className="text-[11px] text-muted-foreground">phases ready</span></div>
                 <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full workflow-progress" style={{width:`${(completedPhaseCount/3)*100}%`}} /></div>
               </div>
-              <div className={`${isStepperOpen ? 'block' : 'hidden'} lg:block border-t border-border/50 p-2.5`}>
+              <div id="production-workflow-steps" className={`${isStepperOpen ? 'block' : 'hidden'} lg:block border-t border-border/50 p-2.5`}>
                 {PHASES.map((phase) => {
                   const PhaseIcon = phase.icon;
                   const isActive = state.phase === phase.id;
                   const completed = isPhaseComplete(phase.id);
-                  return <button key={phase.id} data-tone={phase.tone} onClick={() => setState(s => ({...s,phase:phase.id as PhaseType}))} className={`phase-nav-item ${isActive ? 'is-active' : ''}`}>
+                  const isAvailable = phase.id === 1 || (phase.id === 2 ? Boolean(state.topic) : isPhaseComplete(2));
+                  const unavailableReason = phase.id === 2 ? 'Import and validate a production brief first.' : 'Complete and approve scene directions first.';
+                  return <button key={phase.id} data-tone={phase.tone} disabled={!isAvailable} aria-current={isActive ? 'step' : undefined} title={isAvailable ? phase.description : unavailableReason} onClick={() => setState(s => ({...s,phase:phase.id as PhaseType}))} className={`phase-nav-item ${isActive ? 'is-active' : ''}`}>
                     <span className="phase-nav-icon"><PhaseIcon className="h-[18px] w-[18px]" /></span>
                     <span className="min-w-0 flex-1 text-left"><span className="block text-[10px] uppercase tracking-[0.16em] text-muted-foreground">0{phase.id} · {phase.eyebrow}</span><span className="block font-semibold mt-0.5">{phase.label}</span><span className="block text-[11px] text-muted-foreground mt-1 truncate">{phase.description}</span></span>
                     {completed ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : isActive ? <CircleDot className="h-4 w-4 text-primary" /> : null}
@@ -552,19 +583,21 @@ export default function App() {
                   </div>
                 </CardHeader>
                 <CardContent className={`workspace-body min-h-[500px] ${activePhase?.id !== 1 && activePhase?.id !== 2 && activePhase?.id !== 3 ? "flex items-center justify-center border-y border-border/50 bg-muted/10 m-6 rounded-md border-dashed" : "p-5 sm:p-8"}`}>
-                  {activePhase?.id === 1 ? (
-                    <Phase1Topic state={state} setState={setState} />
-                  ) : activePhase?.id === 2 ? (
-                    <Phase2Script state={state} setState={setState} />
-                  ) : activePhase?.id === 3 ? (
-                    <Phase4Visuals
-                      state={state}
-                      setState={setState}
-                      commitProjectState={commitProjectState}
-                      resumeAfterRecovery={resumeAfterRecovery}
-                      onResumeAfterRecoveryConsumed={() => setResumeAfterRecovery(false)}
-                    />
-                  ) : null}
+                  <Suspense fallback={<WorkspaceLoader label={`Loading ${activePhase?.label || 'workspace'}`} />}>
+                    {activePhase?.id === 1 ? (
+                      <Phase1Topic state={state} setState={setState} />
+                    ) : activePhase?.id === 2 ? (
+                      <Phase2Script state={state} setState={setState} />
+                    ) : activePhase?.id === 3 ? (
+                      <Phase4Visuals
+                        state={state}
+                        setState={setState}
+                        commitProjectState={commitProjectState}
+                        resumeAfterRecovery={resumeAfterRecovery}
+                        onResumeAfterRecoveryConsumed={() => setResumeAfterRecovery(false)}
+                      />
+                    ) : null}
+                  </Suspense>
                 </CardContent>
               </Card>
             </motion.div>
