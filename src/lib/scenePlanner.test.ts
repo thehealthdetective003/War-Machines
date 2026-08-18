@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import template from '../schemas/Modus_Visual_Production_Handoff_V2_Template.json';
 import { normalizeProductionHandoff } from './productionTemplate';
-import { buildDocumentaryScenePlan, deriveGraphicSceneSpec, isOperationallyMobileProduct } from './scenePlanner';
+import { alignScenesToChapters, buildDocumentaryScenePlan, deriveGraphicSceneSpec, isOperationallyMobileProduct } from './scenePlanner';
 
 const scenes=(count:number,duration=10)=>Array.from({length:count},(_,i)=>({number:i+1,start:i*duration,end:(i+1)*duration,duration,text:i%4===0?'factory scale and logistics':i%4===1?'assembly workers install component':i%4===2?'precision testing and measurement':'mechanical system relationship',silent:false}));
 const operationalTopic=(productClass='combat helicopter',restricted=false)=>{
@@ -23,6 +23,15 @@ test('preserves coherent manufacturing runs instead of forcing a new family ever
   assert.ok(plan.every(item=>item.visual_family==='ASSEMBLY_PROCESS'));
   assert.ok(plan.every(item=>item.visual_treatment==='LIVE_ACTION_T2V'));
   assert.ok(plan.every(item=>item.beat_id.endsWith('__SEMANTIC_FALLBACK')));
+});
+
+test('aligns narration monotonically across every Engine chapter without explicit chapter headings',()=>{
+  const raw:any=JSON.parse(JSON.stringify(template)),base=raw.visual_story_plan.chapters[0];
+  raw.visual_story_plan.chapters=['materials','assembly','electronics','operation'].map((keyword,index)=>{const chapter=JSON.parse(JSON.stringify(base));chapter.chapter_id=`CH0${index+1}`;chapter.chapter_order=index+1;chapter.chapter_name=`${keyword} chapter`;chapter.narrative_goal=`Explain the ${keyword} portion of the product story`;chapter.visual_beats=chapter.visual_beats.map((beat:any,beatIndex:number)=>({...beat,beat_id:`CH0${index+1}_B0${beatIndex+1}`,beat_name:`${keyword} visual`,narrative_purpose:`Show the ${keyword} portion`,semantic_alignment_terms:[keyword]}));return chapter;});
+  const input=['raw materials arrive.','material stock is prepared.','structural assembly starts.','workers join the assembly.','electronics enter the system.','sensors and electronics connect.','the completed product begins operation.','it continues operating offshore.'].map((text,index)=>({number:index+1,start:index*6,end:(index+1)*6,duration:6,text,silent:false}));
+  const assigned=alignScenesToChapters(raw,input).map(chapter=>chapter?.chapter_id);
+  assert.deepEqual([...new Set(assigned)],['CH01','CH02','CH03','CH04']);
+  assert.ok(assigned.every((chapter,index)=>index===0||String(chapter)>=String(assigned[index-1])));
 });
 
 test('rejects a handoff that offers only a restricted reference beat',()=>{

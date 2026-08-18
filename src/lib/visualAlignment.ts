@@ -1,6 +1,7 @@
 import type { PlannedScene, TimedScene, TopicBrief, VisualFamily, VisualTreatment } from '../types';
 import type { V2VisualBeat } from '../types/visualProductionV2';
 import { deriveGraphicSceneSpec, resolvePlannedState } from './scenePlanner';
+import { isManufacturingVisualClaim, isOperationalVisualClaim, lifecycleAlignmentIssues } from './directionSemantics';
 
 export interface NarrativeVisualGroup {
   group_id:string;
@@ -31,9 +32,11 @@ export interface VisualAlignmentSelection {
   visual_claim:string;
 }
 
-const stop=new Set(['the','and','that','this','with','from','into','while','through','about','then','than','only','also','have','has','had','does','not','scene','visual','product','system']);
+const stop=new Set(['the','and','that','this','with','from','into','while','through','about','then','than','only','also','have','has','had','does','not','scene','show','visual','product','system']);
 const tokens=(value:string)=>new Set((value.toLowerCase().match(/[a-z0-9]{3,}/g)||[]).filter(value=>!stop.has(value)));
 const overlap=(a:Set<string>,b:Set<string>)=>[...a].filter(value=>b.has(value)).length;
+const OPERATIONAL_FAMILIES=new Set<VisualFamily>(['OPERATIONAL_CONTEXT','DYNAMIC_TESTING','ENVIRONMENTAL_TESTING','DELIVERY_AND_ROLLOUT','HERO_PRODUCT']);
+const GRAPHIC_FAMILIES=new Set<VisualFamily>(['TECHNICAL_GRAPHIC','MAP_OR_SUPPLY_CHAIN']);
 const treatment=(beat:V2VisualBeat):VisualTreatment=>{
   if(!['TECHNICAL_GRAPHIC','MAP_OR_SUPPLY_CHAIN'].includes(beat.visual_family))return 'LIVE_ACTION_T2V';
   const text=`${beat.beat_name} ${beat.narrative_purpose} ${beat.semantic_alignment_terms.join(' ')}`.toLowerCase();
@@ -52,10 +55,8 @@ export function buildAlignmentRequests(topic:TopicBrief,scenes:TimedScene[],base
   const allowed=chapters.flatMap((chapter:any)=>(chapter.visual_beats||[]).map((beat:V2VisualBeat)=>({chapter_id:chapter.chapter_id,beat}))).filter((item:any)=>item.beat.generation_permission==='T2V_ALLOWED'&&item.beat.preferred_media_routes?.includes('GENERATED_T2V'));
   return buildNarrativeGroups(scenes).map(group=>{
     const chapterIds=new Set(group.scene_numbers.map(number=>basePlan[number-1]?.chapter_id).filter(Boolean));
-    const local=allowed.filter((item:any)=>chapterIds.has(item.chapter_id));
-    const pool=local.length?local:allowed;
     const groupTokens=tokens(`${group.voiceover} ${group.previous_context} ${group.next_context}`);
-    const ranked=pool.map((item:any)=>({item,score:overlap(groupTokens,tokens(`${item.beat.beat_name} ${item.beat.narrative_purpose} ${(item.beat.semantic_alignment_terms||[]).join(' ')}`))})).sort((a:any,b:any)=>b.score-a.score||a.item.beat.beat_order-b.item.beat.beat_order).slice(0,8);
+    const ranked=allowed.map((item:any)=>({item,score:overlap(groupTokens,tokens(`${item.beat.beat_name} ${item.beat.narrative_purpose} ${(item.beat.semantic_alignment_terms||[]).join(' ')}`))*10+(chapterIds.has(item.chapter_id)?3:0)})).sort((a:any,b:any)=>b.score-a.score||a.item.beat.beat_order-b.item.beat.beat_order).slice(0,8);
     return {...group,candidates:ranked.map(({item}:any)=>({beat_id:item.beat.beat_id,beat_name:item.beat.beat_name,narrative_purpose:item.beat.narrative_purpose,story_function:item.beat.story_function,visual_family:item.beat.visual_family,semantic_alignment_terms:item.beat.semantic_alignment_terms,stage_ids:item.beat.applicable_stage_ids,environment_ids:item.beat.environment_ids,product_visibility:item.beat.product_visibility,must_show:item.beat.must_show,must_not_show:[...item.beat.must_not_show,...item.beat.negative_constraints]}))};
   });
 }
@@ -69,12 +70,29 @@ export function validateAlignmentSelections(requests:AlignmentRequestGroup[],raw
     if(source==='ENGINE_BEAT'&&!request.candidates.some(candidate=>candidate.beat_id===beat_id))throw new Error(`${group_id} selected a beat outside its validated shortlist.`);
     if(source==='VO_FALLBACK'&&beat_id!==null)throw new Error(`${group_id} fallback must not claim an Engine beat.`);
     const confidence=Math.max(0,Math.min(1,Number(item?.confidence)||0));const visual_claim=String(item?.visual_claim||'').trim();if(!visual_claim)throw new Error(`${group_id} has no visual claim.`);
+    const voiceoverTokens=tokens(request.voiceover),claimTokens=tokens(visual_claim);if(voiceoverTokens.size>=4&&claimTokens.size>=3&&overlap(voiceoverTokens,claimTokens)===0)throw new Error(`${group_id} visual claim is not grounded in its voiceover.`);
+    if(source==='ENGINE_BEAT'){const candidate=request.candidates.find(value=>value.beat_id===beat_id)!;const lifecycle=lifecycleAlignmentIssues(visual_claim,candidate.visual_family);if(lifecycle.length)throw new Error(`${group_id} selected ${candidate.visual_family} for an incompatible narration lifecycle.`);}
     return {group_id,source,beat_id,confidence,visual_claim} as VisualAlignmentSelection;
   });
   const missing=requests.filter(request=>!seen.has(request.group_id));if(missing.length)throw new Error(`Gemini omitted visual alignment groups ${missing.map(item=>item.group_id).join(', ')}.`);return selections;
 }
 
-const fallbackFamily=(text:string):VisualFamily=>/\b(name|called|means|official|compare|difference|why|timeline|map|route|distance|length|scale|satellite|concept)\b/i.test(text)?'TECHNICAL_GRAPHIC':'ASSEMBLY_PROCESS';
+const fallbackFamily=(text:string):VisualFamily=>{
+  if(isManufacturingVisualClaim(text))return 'ASSEMBLY_PROCESS';
+  if(isOperationalVisualClaim(text))return 'OPERATIONAL_CONTEXT';
+  if(/\b(name|called|means|official|compare|difference|why|timeline|map|route|distance|length|scale|satellite|concept|signal|coverage|communications?|relationship|flow|network)\b/i.test(text))return 'TECHNICAL_GRAPHIC';
+  return 'ASSEMBLY_PROCESS';
+};
+
+const routeFallback=(handoff:any,request:AlignmentRequestGroup,selection:VisualAlignmentSelection,base:PlannedScene)=>{
+  const desired=fallbackFamily(selection.visual_claim),claimTokens=tokens(`${request.voiceover} ${selection.visual_claim}`);
+  const allowed:(V2VisualBeat[])=(handoff?.visual_story_plan?.chapters||[]).flatMap((chapter:any)=>chapter.visual_beats||[]).filter((beat:V2VisualBeat)=>beat.generation_permission==='T2V_ALLOWED'&&beat.preferred_media_routes?.includes('GENERATED_T2V'));
+  const compatible=allowed.filter(beat=>desired==='OPERATIONAL_CONTEXT'?OPERATIONAL_FAMILIES.has(beat.visual_family):desired==='TECHNICAL_GRAPHIC'?GRAPHIC_FAMILIES.has(beat.visual_family):!OPERATIONAL_FAMILIES.has(beat.visual_family)&&!GRAPHIC_FAMILIES.has(beat.visual_family));
+  const ranked=compatible.map(beat=>({beat,score:overlap(claimTokens,tokens(`${beat.beat_name} ${beat.narrative_purpose} ${(beat.semantic_alignment_terms||[]).join(' ')}`))})).sort((a,b)=>b.score-a.score||a.beat.beat_order-b.beat.beat_order);
+  const beat=ranked[0]?.beat,operationalStage=desired==='OPERATIONAL_CONTEXT'?(handoff?.production_stages||[]).find((item:any)=>item.product_state_code==='C'):null;
+  const stage=beat?.applicable_stage_ids[0]||operationalStage?.stage_id||base.stage_id,environment=beat?.environment_ids[0]||operationalStage?.environment_ids?.[0]||(desired==='OPERATIONAL_CONTEXT'?(handoff?.environments||[]).find((item:any)=>item.setting_scope==='OPERATIONAL')?.environment_id:null)||base.environment_ref;
+  return {desired,beat,stage,environment};
+};
 
 export function applyVisualAlignments(topic:TopicBrief,scenes:TimedScene[],basePlan:PlannedScene[],requests:AlignmentRequestGroup[],selections:VisualAlignmentSelection[]):PlannedScene[]{
   const handoff:any=topic._production_handoff;const beats=new Map<string,V2VisualBeat>((handoff?.visual_story_plan?.chapters||[]).flatMap((chapter:any)=>chapter.visual_beats||[]).map((beat:V2VisualBeat)=>[beat.beat_id,beat]));
@@ -82,9 +100,9 @@ export function applyVisualAlignments(topic:TopicBrief,scenes:TimedScene[],baseP
   return basePlan.map((base,index)=>{
     const matched=selectionByScene.get(base.number);if(!matched)return base;const {selection,request}=matched;
     if(selection.source==='VO_FALLBACK'){
-      const family=fallbackFamily(request.voiceover),visual_treatment:VisualTreatment=family==='TECHNICAL_GRAPHIC'?'MOTION_GRAPHIC_T2V':'LIVE_ACTION_T2V';
-      const plan:PlannedScene={...base,beat_id:`${base.chapter_id}__VO_FALLBACK_${request.group_id}`,visual_family:family,story_function:family==='TECHNICAL_GRAPHIC'?'EXPLAIN_HIDDEN_SYSTEM':'EXPLAIN_PROCESS',visual_treatment,product_visibility:family==='TECHNICAL_GRAPHIC'?'NONE':'PARTIAL',graphic_spec:null,reference_asset_ids:[],required_visible_features:family==='TECHNICAL_GRAPHIC'?['one text-free visual relationship']:[selection.visual_claim],forbidden_elements:['unrelated deployed-product footage','unassigned exact facility or event claim','invented proprietary detail'],continuity_requirements:['preserve the current lifecycle stage and environment'],alignment_source:'VO_FALLBACK',alignment_confidence:selection.confidence,alignment_claim:selection.visual_claim};
-      plan.state=resolvePlannedState(topic,plan.stage_id,plan.product_visibility);plan.graphic_spec=deriveGraphicSceneSpec(topic,scenes[index],plan);return plan;
+      const route=routeFallback(handoff,request,selection,base),family=route.beat?.visual_family||route.desired,visual_treatment:VisualTreatment=route.beat?treatment(route.beat):family==='TECHNICAL_GRAPHIC'?'MOTION_GRAPHIC_T2V':'LIVE_ACTION_T2V',visibility=(route.beat?.product_visibility||(GRAPHIC_FAMILIES.has(family)?'NONE':OPERATIONAL_FAMILIES.has(family)?'FULL':'PARTIAL')) as PlannedScene['product_visibility'];
+      const plan:PlannedScene={...base,beat_id:`${base.chapter_id}__VO_FALLBACK_${request.group_id}`,visual_family:family,story_function:route.beat?.story_function||(GRAPHIC_FAMILIES.has(family)?'EXPLAIN_HIDDEN_SYSTEM':OPERATIONAL_FAMILIES.has(family)?'DELIVER_PAYOFF':'EXPLAIN_PROCESS'),visual_treatment,product_visibility:visibility,stage_id:route.stage,environment_ref:route.environment,graphic_spec:null,reference_asset_ids:[],required_visible_features:GRAPHIC_FAMILIES.has(family)?['one text-free visual relationship',selection.visual_claim]:[selection.visual_claim],forbidden_elements:[...(route.beat?.must_not_show||[]),...(route.beat?.negative_constraints||[]),'unassigned exact facility or event claim','invented proprietary detail'],continuity_requirements:[...(route.beat?.continuity_requirements||[]),'preserve the routed lifecycle stage and environment'],alignment_source:'VO_FALLBACK',alignment_confidence:selection.confidence,alignment_claim:selection.visual_claim};
+      plan.state=resolvePlannedState(topic,plan.stage_id,plan.product_visibility);plan.graphic_spec=deriveGraphicSceneSpec(topic,scenes[index],plan);if(plan.graphic_spec)plan.graphic_spec={...plan.graphic_spec,visual_claim:selection.visual_claim};return plan;
     }
     const beat=beats.get(selection.beat_id!);if(!beat)return base;const stage=beat.applicable_stage_ids[0]||base.stage_id,environment=beat.environment_ids[0]||base.environment_ref;
     const plan:PlannedScene={...base,beat_id:beat.beat_id,visual_family:beat.visual_family,story_function:beat.story_function,visual_treatment:treatment(beat),product_visibility:beat.product_visibility,stage_id:stage,environment_ref:environment,state:resolvePlannedState(topic,stage,beat.product_visibility),graphic_spec:null,reference_asset_ids:[...beat.reference_asset_ids],required_visible_features:[...beat.must_show],forbidden_elements:[...beat.must_not_show,...beat.negative_constraints],continuity_requirements:[...beat.continuity_requirements],alignment_source:'ENGINE_BEAT',alignment_confidence:selection.confidence,alignment_claim:selection.visual_claim};

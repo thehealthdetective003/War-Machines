@@ -205,20 +205,34 @@ function explicitChapterIndex(text:string):number|null{
 function chapterSearchText(chapter:V2Chapter):string{
   return [chapter.chapter_name,chapter.narrative_goal,chapter.chapter_question,chapter.chapter_payoff,chapter.opening_rehook_intent,...chapter.visual_beats.flatMap(beat=>[beat.beat_name,beat.narrative_purpose,...beat.semantic_alignment_terms])].filter(Boolean).join(' ');
 }
-function alignScenesToChapters(handoff:VisualProductionHandoffV2|null,scenes:TimedScene[]):Array<V2Chapter|null>{
+export function alignScenesToChapters(handoff:VisualProductionHandoffV2|null,scenes:TimedScene[]):Array<V2Chapter|null>{
   const chapters=handoff?.visual_story_plan?.chapters||[];
   if(!chapters.length)return scenes.map(()=>null);
-  let current=0;const hasExplicit=scenes.some(scene=>explicitChapterIndex(scene.text)!==null);
-  return scenes.map(scene=>{
-    const explicit=explicitChapterIndex(scene.text);
-    if(explicit!==null&&explicit>=current&&explicit<chapters.length)current=explicit;
-    else if(!hasExplicit&&explicit===null&&current<chapters.length-1){
-      const vo=tokenize(scene.text),currentScore=overlap(vo,tokenize(chapterSearchText(chapters[current])));
-      const nextScore=overlap(vo,tokenize(chapterSearchText(chapters[current+1])));
-      if(nextScore>=4&&nextScore>=currentScore+3)current++;
-    }
-    return chapters[current];
-  });
+  const hasExplicit=scenes.some(scene=>explicitChapterIndex(scene.text)!==null);
+  if(hasExplicit){let current=0;return scenes.map(scene=>{const explicit=explicitChapterIndex(scene.text);if(explicit!==null&&explicit>=current&&explicit<chapters.length)current=explicit;return chapters[current];});}
+  if(scenes.length<chapters.length)return scenes.map((_,index)=>chapters[Math.min(chapters.length-1,Math.floor(index*chapters.length/Math.max(scenes.length,1)))]);
+  const groups:Array<{scenes:TimedScene[];text:string}>=[];let pending:TimedScene[]=[];
+  const flush=()=>{if(!pending.length)return;groups.push({scenes:pending,text:pending.map(scene=>scene.text).join(' ')});pending=[];};
+  scenes.forEach(scene=>{pending.push(scene);if(scene.silent||pending.length>=4||/[.!?]["']?$/.test(scene.text.trim()))flush();});flush();
+  if(groups.length<chapters.length)return scenes.map((_,index)=>chapters[Math.min(chapters.length-1,Math.floor(index*chapters.length/Math.max(scenes.length,1)))]);
+  const chapterTokens=chapters.map(chapter=>tokenize(chapterSearchText(chapter))),negative=-1e9;
+  const score=(groupIndex:number,chapterIndex:number)=>{
+    const group=groups[groupIndex],context=[groups[groupIndex-1]?.text,group.text,groups[groupIndex+1]?.text].filter(Boolean).join(' ');
+    const semantic=overlap(tokenize(context),chapterTokens[chapterIndex]);
+    const expected=(groupIndex/Math.max(groups.length-1,1))*(chapters.length-1);
+    return semantic*4-Math.abs(chapterIndex-expected)*0.7;
+  };
+  const dp=Array.from({length:groups.length},()=>Array(chapters.length).fill(negative)),previous=Array.from({length:groups.length},()=>Array(chapters.length).fill(-1));
+  dp[0][0]=score(0,0);
+  for(let groupIndex=1;groupIndex<groups.length;groupIndex++)for(let chapterIndex=0;chapterIndex<chapters.length;chapterIndex++){
+    const stay=dp[groupIndex-1][chapterIndex],advance=chapterIndex>0?dp[groupIndex-1][chapterIndex-1]-0.4:negative;
+    if(stay===negative&&advance===negative)continue;
+    const fromAdvance=advance>stay;dp[groupIndex][chapterIndex]=(fromAdvance?advance:stay)+score(groupIndex,chapterIndex);previous[groupIndex][chapterIndex]=fromAdvance?chapterIndex-1:chapterIndex;
+  }
+  const assigned=Array(groups.length).fill(0);let chapterIndex=dp.at(-1)![chapters.length-1]===negative?dp.at(-1)!.reduce((best,value,index,row)=>value>row[best]?index:best,0):chapters.length-1;
+  for(let groupIndex=groups.length-1;groupIndex>=0;groupIndex--){assigned[groupIndex]=chapterIndex;const prior=previous[groupIndex][chapterIndex];if(prior>=0)chapterIndex=prior;}
+  const byScene=new Map<number,V2Chapter>();groups.forEach((group,index)=>group.scenes.forEach(scene=>byScene.set(scene.number,chapters[assigned[index]])));
+  return scenes.map(scene=>byScene.get(scene.number)||chapters[0]);
 }
 const beatSemanticScore=(scene:TimedScene,beat:V2VisualBeat)=>overlap(tokenize(scene.text),tokenize(`${beat.beat_name} ${beat.narrative_purpose} ${beat.semantic_alignment_terms.join(' ')}`));
 function facilityCueScore(text:string):number{
