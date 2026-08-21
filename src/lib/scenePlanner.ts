@@ -1,5 +1,6 @@
 import type { CameraPlatform, CinematicEnergy, GraphicAnnotationDevice, GraphicComposition, GraphicMotionPattern, GraphicSceneSpec, GraphicSubtype, PlannedScene, ProductVisibility, ShowdownRole, StoryFunction, TimedScene, TopicBrief, VisualFamily, VisualTreatment } from '../types';
 import type { V2Chapter, V2VisualBeat, VisualProductionHandoffV2 } from '../types/visualProductionV2';
+import { graphicNeedScore } from './visualPolicy';
 
 interface Candidate {
   chapter: V2Chapter | null;
@@ -244,10 +245,6 @@ function operationalCueScore(text:string):number{
   const value=text.toLowerCase();
   return (value.match(/\b(begins? to roll|accelerates?|lifts? from the ground|reaches? the runway|runway acceleration|taxi(?:s|es|ing)|takeoff|airborne|flight loads?|controlled flight|flyby|flies|flying|rotation tests?|controlled climb|controlled turn|bank(?:ing)? pass|maneuver(?:ing)?|landing approach|touchdown|rollout|hover(?:ing)?|ground movement)\b/g)||[]).length;
 }
-function graphicCueScore(text:string):number{
-  const value=text.toLowerCase();
-  return (value.match(/\b(relationship|geometry|alignment error|propagat|converge|symmetry|spacing|signal chain|control chain|data flow|data links?|electronic commands?|communicat|flight control|airflow path|heat flow|feeds? a corresponding|hidden network|layer|cross.section|compare|comparison|progressively become|internal sequence)\b/g)||[]).length;
-}
 function atmosphericCueScore(text:string):number{
   return (text.toLowerCase().match(/\b(dawn|dusk|night|sunrise|sunset|rain|snow|fog|mist|cloud|weather|light shifts?|heat haze|steam|dust|sparks?|vibration|powered equipment ambience|industrial atmosphere)\b/g)||[]).length;
 }
@@ -287,8 +284,8 @@ function selectGraphicScenes(scenes:TimedScene[],chapterAssignments:Array<V2Chap
     const graphics=candidates.filter(candidate=>(chapter?candidate.chapter?.chapter_id===chapter.chapter_id:true)&&GRAPHIC.has(candidate.beat.visual_family));
     if(!graphics.length)return;
     const ranked=graphics.map(candidate=>({candidate,semantic:beatSemanticScore(scene,candidate.beat)})).sort((a,b)=>b.semantic-a.semantic);
-    const best=ranked[0],cue=graphicCueScore(scene.text);
-    if(best.semantic<2||(cue<1&&best.semantic<4))return;
+    const best=ranked[0],cue=graphicNeedScore(scene.text,`${best.candidate.beat.beat_name} ${best.candidate.beat.narrative_purpose}`);
+    if(best.semantic<2||(cue<3&&best.semantic<4))return;
     eligible.push({number:scene.number,beatId:best.candidate.sourceBeatId,chapterId:chapter?.chapter_id||'LEGACY_DOCUMENTARY',score:best.semantic*6+cue*8});
   });
   const runtime=scenes.at(-1)?.end||0,maxGraphics=Math.max(1,Math.floor(runtime/180));

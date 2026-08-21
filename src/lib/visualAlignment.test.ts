@@ -30,12 +30,12 @@ test('shortlists only Engine-authorized generated T2V beats and validates select
   assert.throws(()=>validateAlignmentSelections(requests,[{group_id:requests[0].group_id,source:'ENGINE_BEAT',beat_id:'REF_ONLY',confidence:1,visual_claim:'Wrong'}]),/outside its validated shortlist/);
 });
 
-test('applies a safe VO fallback without changing transcript timing',()=>{
+test('does not turn broad analytical vocabulary into a graphic fallback',()=>{
   const topic=normalizeProductionHandoff(JSON.parse(JSON.stringify(template))),scenes=timed(['The name is not an official class designation.']);
   const base=buildDocumentaryScenePlan(topic,scenes),requests=buildAlignmentRequests(topic,scenes,base);
   const selections=validateAlignmentSelections(requests,[{group_id:requests[0].group_id,source:'VO_FALLBACK',beat_id:null,confidence:.82,visual_claim:'Show the class designation distinction as one text-free conceptual relationship'}]);
   const plan=applyVisualAlignments(topic,scenes,base,requests,selections);
-  assert.equal(plan[0].alignment_source,'VO_FALLBACK');assert.equal(plan[0].visual_family,'TECHNICAL_GRAPHIC');assert.equal(plan[0].product_visibility,'NONE');assert.equal(scenes[0].start,0);assert.equal(scenes[0].end,6);
+  assert.equal(plan[0].alignment_source,'VO_FALLBACK');assert.notEqual(plan[0].visual_family,'TECHNICAL_GRAPHIC');assert.equal(plan[0].visual_treatment,'LIVE_ACTION_T2V');assert.equal(scenes[0].start,0);assert.equal(scenes[0].end,6);
 });
 
 test('rejects an alignment claim with no semantic grounding in its VO',()=>{

@@ -248,6 +248,10 @@ export interface PlannedScene {
   alignment_source?: 'ENGINE_BEAT' | 'VO_FALLBACK';
   alignment_confidence?: number;
   alignment_claim?: string;
+  /** Group-level semantic context is advisory; scene-level allocation remains authoritative. */
+  semantic_group_id?: string;
+  semantic_group_beat_id?: string | null;
+  semantic_group_intent?: string;
 }
 export interface TemporalAction {
   opening_state: string;
