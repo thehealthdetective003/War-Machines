@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AppState, PlannedScene, SceneDirection, T2VPrompt, TimedScene } from '../types';
 import { normalizeGenerationSession } from './generationSession';
-import { createProductionBatches, createProductionSession, createResumableProductionSession, firstChangedTranscriptionScene, invalidateFromScene, isQuotaOrRateLimitError, synchronizeProductionSession, updateProductionBatch } from './productionSession';
+import { createProductionBatches, createProductionSession, createResumableProductionSession, firstChangedTranscriptionScene, invalidateFromScene, isQuotaOrRateLimitError, mergeDeferredRepairs, mergeValidationWarnings, synchronizeProductionSession, updateProductionBatch } from './productionSession';
 
 const scenes=(count:number):TimedScene[]=>Array.from({length:count},(_,index)=>({number:index+1,start:index*6,end:(index+1)*6,duration:6,text:`Complete idea ${index+1}${index===5?'.':''}`,silent:false}));
 const plans=(count:number):PlannedScene[]=>Array.from({length:count},(_,index)=>({number:index+1,chapter_id:index<6?'CH01':'CH02',beat_id:`B${index+1}`,visual_family:'ASSEMBLY_PROCESS',story_function:index===5?'CONCLUDE_CHAPTER':'EXPLAIN_PROCESS',visual_treatment:'LIVE_ACTION_T2V',product_visibility:'PARTIAL',stage_id:index<6?'S01':'S02',environment_ref:'E01',state:'B',showdown_role:null,energy_level:'MEDIUM',camera_platform:null,graphic_spec:null,reference_asset_ids:[],required_visible_features:['product'],forbidden_elements:['finished product'],continuity_requirements:[],alignment_source:'ENGINE_BEAT',alignment_confidence:.9,alignment_claim:`Show action ${index+1}`}));
@@ -48,6 +48,12 @@ test('round-trips direction and prompt correction checkpoints without losing can
   const restoredPrompt=normalizeGenerationSession(JSON.parse(JSON.stringify(promptPending)));
   assert.equal(restoredPrompt.batches[0].operation,'PROMPT_CORRECTION');
   assert.deepEqual(restoredPrompt.batches[0].promptCorrectionSceneNumbers,[4]);
+});
+
+test('round-trips persisted warnings and a bounded deferred repair queue',()=>{
+  const session=createProductionSession(scenes(8),plans(8)),warning={sceneNumber:3,code:'AMBIGUOUS_SEMANTICS',severity:'WARNING' as const,message:'Advisory'},repair={sceneNumber:4,operation:'DIRECTION' as const,validationCode:'COMPONENT_PRESENT_TOO_EARLY',severity:'BLOCKING_ERROR' as const,attempts:1,lastError:'mast appears early',dependencies:['STG_01.not_yet_installed']};
+  session.validationWarnings=mergeValidationWarnings(session.validationWarnings,[warning,warning]);session.deferredRepairs=mergeDeferredRepairs(session.deferredRepairs,[repair,{...repair,attempts:2}]);
+  const restored=normalizeGenerationSession(JSON.parse(JSON.stringify({...session,status:'deferred_repairs'})));assert.equal(restored.status,'deferred_repairs');assert.equal(restored.validationWarnings.length,1);assert.equal(restored.deferredRepairs.length,1);assert.equal(restored.deferredRepairs[0].attempts,2);
 });
 
 test('detects quota exhaustion without treating ordinary validation failures as quota errors',()=>{

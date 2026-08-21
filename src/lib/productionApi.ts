@@ -1,13 +1,13 @@
-import type { AppState, PersistedAlignmentSelection, PlannedScene, ProductionContext, SceneDirection, TimedScene } from '../types';
+import type { AppState, PersistedAlignmentSelection, PlannedScene, ProductionContext, SceneDirection, TimedScene, TopicBrief, ValidationFinding, ValidationSeverity } from '../types';
 import type { AlignmentRequestGroup, VisualAlignmentSelection } from './visualAlignment';
 import { validateAlignmentSelections } from './visualAlignment';
-import { mergeDirectionMetadata, validateSceneDirections } from './sceneDirections';
-import { directionSemanticIssues } from './directionSemantics';
+import { mergeDirectionMetadata } from './sceneDirections';
+import { blockingFindings, repairableFindings, semanticDirectionFindings, structuredDirectionFindings, warningFindings } from './validationModel';
 import { buildFocusedProductionContext } from './omniPromptContext';
 import { ALIGNMENT_INSTRUCTION_VERSION, composeAlignmentInstruction, composeDirectionInstruction, DIRECTION_INSTRUCTION_VERSION } from './productionInstructions';
 import { isReusableFingerprint, operationFingerprint } from './operationFingerprint';
 
-export interface ItemFailure {id:string;number?:number;issues:string[];candidate?:SceneDirection;}
+export interface ItemFailure {id:string;number?:number;issues:string[];candidate?:SceneDirection;findings?:ValidationFinding[];severity?:ValidationSeverity;}
 
 export function alignmentOperationFingerprint(model:string,request:AlignmentRequestGroup,focusedContext:unknown,persistentContext:ProductionContext|null):string{
   return operationFingerprint('alignment',ALIGNMENT_INSTRUCTION_VERSION,{model,request,focusedContext,persistentContext,instruction:composeAlignmentInstruction()});
@@ -33,19 +33,22 @@ export function directionOperationFingerprint(state:Pick<AppState,'topic'>,model
   return operationFingerprint('direction',DIRECTION_INSTRUCTION_VERSION,{model,scene,plan,focusedContext,persistentContext,instruction:composeDirectionInstruction([plan],`${(state.topic as any)?._production_handoff?.product?.product_class||''} ${state.topic?.topic?.product||''}`)});
 }
 
-export function partitionDirectionResponse(raw:unknown,targetScenes:TimedScene[],targetPlan:PlannedScene[],generationDurationSeconds:number,fingerprints:Map<number,string>):{accepted:SceneDirection[];failed:ItemFailure[]}{
-  const items=Array.isArray(raw)?raw:[],accepted:SceneDirection[]=[],failed:ItemFailure[]=[];
+export function partitionDirectionResponse(raw:unknown,targetScenes:TimedScene[],targetPlan:PlannedScene[],generationDurationSeconds:number,fingerprints:Map<number,string>,options:{topic?:TopicBrief|null;afterRepair?:boolean}={}):{accepted:SceneDirection[];failed:ItemFailure[];warnings:ValidationFinding[]}{
+  const items=Array.isArray(raw)?raw:[],accepted:SceneDirection[]=[],failed:ItemFailure[]=[],warnings:ValidationFinding[]=[];
   targetScenes.forEach(scene=>{
     const plan=targetPlan.find(item=>item.number===scene.number),matches=items.filter((item:any)=>Number(item?.number)===scene.number);
     if(!plan){failed.push({id:String(scene.number),number:scene.number,issues:['MISSING_PLANNED_SCENE']});return;}
     if(matches.length!==1){failed.push({id:String(scene.number),number:scene.number,issues:[matches.length?'DUPLICATE_SCENE_OUTPUT':'MISSING_OR_MALFORMED_SCENE_OUTPUT']});return;}
-    const merged=mergeDirectionMetadata([matches[0]],[scene],[plan],generationDurationSeconds)[0],structural=validateSceneDirections([merged],[scene],[plan],generationDurationSeconds),semantic=structural.length?[]:directionSemanticIssues(merged),issues=[...structural,...semantic];
-    if(issues.length)failed.push({id:String(scene.number),number:scene.number,issues,candidate:structural.length?undefined:merged});
+    const merged=mergeDirectionMetadata([matches[0]],[scene],[plan],generationDurationSeconds)[0],structured=structuredDirectionFindings(options.topic||null,merged,scene,plan,generationDurationSeconds),semantic=blockingFindings(structured).length?[]:semanticDirectionFindings(merged,Boolean(options.afterRepair)),findings=[...structured,...semantic],blocking=blockingFindings(findings),repairable=repairableFindings(findings),advisory=warningFindings(findings);
+    warnings.push(...advisory);
+    if(blocking.length||repairable.length){const relevant=[...blocking,...repairable];failed.push({id:String(scene.number),number:scene.number,issues:relevant.map(item=>item.code),candidate:merged,findings:relevant,severity:blocking.length?'BLOCKING_ERROR':'REPAIRABLE_ERROR'});}
     else accepted.push({...merged,operationFingerprint:fingerprints.get(scene.number)});
   });
-  return {accepted,failed};
+  return {accepted,failed,warnings};
 }
 
 export function partitionReusableDirections(existing:SceneDirection[],targetScenes:TimedScene[],targetPlan:PlannedScene[],state:Pick<AppState,'topic'>,model:string,persistentContext:ProductionContext|null){
-  const planByNumber=new Map(targetPlan.map(plan=>[plan.number,plan])),expected=new Map(targetScenes.map(scene=>[scene.number,directionOperationFingerprint(state,model,scene,planByNumber.get(scene.number)!,persistentContext)])),reusable=existing.filter(direction=>expected.has(direction.number)&&isReusableFingerprint(direction.operationFingerprint,expected.get(direction.number)!)),numbers=new Set(reusable.map(direction=>direction.number)),staleSceneNumbers=existing.filter(direction=>expected.has(direction.number)&&!numbers.has(direction.number)).map(direction=>direction.number);return {reusable,missingScenes:targetScenes.filter(scene=>!numbers.has(scene.number)),staleSceneNumbers:[...new Set(staleSceneNumbers)].sort((a,b)=>a-b),fingerprints:expected};
+  const planByNumber=new Map(targetPlan.map(plan=>[plan.number,plan])),sceneByNumber=new Map(targetScenes.map(scene=>[scene.number,scene])),expected=new Map(targetScenes.map(scene=>[scene.number,directionOperationFingerprint(state,model,scene,planByNumber.get(scene.number)!,persistentContext)])),warnings:ValidationFinding[]=[];
+  const reusable=existing.filter(direction=>{const scene=sceneByNumber.get(direction.number),plan=planByNumber.get(direction.number);if(!scene||!plan||!isReusableFingerprint(direction.operationFingerprint,expected.get(direction.number)!))return false;const structured=structuredDirectionFindings(state.topic,direction,scene,plan,direction.generation_duration_seconds);if(blockingFindings(structured).length)return false;warnings.push(...semanticDirectionFindings(direction,true));return true;});
+  const numbers=new Set(reusable.map(direction=>direction.number)),staleSceneNumbers=existing.filter(direction=>expected.has(direction.number)&&!numbers.has(direction.number)).map(direction=>direction.number);return {reusable,missingScenes:targetScenes.filter(scene=>!numbers.has(scene.number)),staleSceneNumbers:[...new Set(staleSceneNumbers)].sort((a,b)=>a-b),fingerprints:expected,warnings};
 }

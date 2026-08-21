@@ -24,7 +24,7 @@ import { resplitTranscription, resetDownstreamForTiming } from './lib/timedTrans
 import { migrateProject, projectSceneDuration } from './lib/projectMigration';
 import { idleGenerationSession } from './lib/generationSession';
 import { validateProductionReadiness } from './lib/setupValidation';
-import { isWorkflowStageComplete } from './lib/workflowState';
+import { isReviewAvailable, isWorkflowStageComplete } from './lib/workflowState';
 
 const Phase1Topic = lazy(() => import('./components/Phase1Topic').then(module => ({ default: module.Phase1Topic })));
 const ProductionPipeline = lazy(() => import('./components/ProductionPipeline').then(module => ({ default: module.ProductionPipeline })));
@@ -50,7 +50,7 @@ function WorkspaceLoader({ label = 'Preparing your project workspace' }: { label
   );
 }
 export const INITIAL_STATE: AppState = {
-  projectSchemaVersion: 15,
+  projectSchemaVersion: 16,
   id: undefined,
   projectName: 'Untitled Manufacturing Sequence',
   projectFormat: 'standard-lifecycle',
@@ -530,7 +530,7 @@ export default function App() {
                   const isActive = state.phase === phase.id;
                   const completed = isPhaseComplete(phase.id);
                   const productionRunning=state.phase===2&&state.generationSession.status==='running';
-                  const isAvailable = phase.id === 1 ? !productionRunning : phase.id === 2 ? validateProductionReadiness(state).ready&&(state.phase===2||state.generationSession.status!=='idle') : isPhaseComplete(2);
+                  const isAvailable = phase.id === 1 ? !productionRunning : phase.id === 2 ? validateProductionReadiness(state).ready&&(state.phase===2||state.generationSession.status!=='idle') : isReviewAvailable(state);
                   const unavailableReason = phase.id === 2 ? 'Validate both Setup inputs first.' : 'Complete the automatic production pipeline first.';
                   return <button key={phase.id} data-tone={phase.tone} disabled={!isAvailable} aria-current={isActive ? 'step' : undefined} title={isAvailable ? phase.description : unavailableReason} onClick={() => setState(s => ({...s,phase:phase.id as PhaseType}))} className={`phase-nav-item ${isActive ? 'is-active' : ''}`}>
                     <span className="phase-nav-icon"><PhaseIcon className="h-[18px] w-[18px]" /></span>

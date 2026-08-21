@@ -79,13 +79,13 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     : [];
   const preserveOutput = compatiblePrompts.length > 0;
   const productionComplete=!!transcription&&compatiblePrompts.length===transcription.scenes.length&&directionsValid;
-  const phase = productionComplete?3:(raw.topic&&transcription?2:1);
   let generationSession = normalizeGenerationSession(raw.generationSession,compatiblePrompts.length);
   if(raw.projectSchemaVersion<13||!generationSession.batches.length)generationSession=createResumableProductionSession(transcription?.scenes||[],planValid?rawPlan:[],directionPrefixValid?repairedDirections:[],compatiblePrompts);
   if (!raw.generationSession && directionsValid && compatiblePrompts.length === repairedDirections.length && compatiblePrompts.length > 0) {
     generationSession.status = 'complete';
     generationSession.completedScenes = compatiblePrompts.length;
   }
+  const phase = productionComplete||generationSession.status==='deferred_repairs'?3:(raw.topic&&transcription?2:1);
   const state: AppState = {
     ...initial,
     id: raw.id,
@@ -100,9 +100,9 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     sceneDirections: directionPrefixValid ? repairedDirections : [],
     visualPrompts: preserveOutput ? compatiblePrompts.sort((a,b)=>a.number-b.number) : [],
     generationSession,
-    projectSchemaVersion: 15,
+    projectSchemaVersion: 16,
   };
-  generationSession=synchronizeProductionSession(generationSession,state);state.generationSession=productionComplete?{...generationSession,status:'complete',operation:'COMPLETE'}:generationSession;
+  generationSession=synchronizeProductionSession(generationSession,state);state.generationSession=productionComplete?{...generationSession,status:generationSession.status==='complete_with_warnings'?'complete_with_warnings':'complete',operation:'COMPLETE'}:generationSession;
   const reset = timingChanged || imageMode || (!directionPrefixValid && repairedDirections.length > 0) || (rawPrompts.length > 0 && !preserveOutput);
   const planningUpgrade = raw.projectSchemaVersion < 12 && rawPlan.length > 0;
   const resumableDirections = directionPrefixValid && (repairedDirections.length < (transcription?.scenes.length || 0)||compatiblePrompts.length<repairedDirections.length);

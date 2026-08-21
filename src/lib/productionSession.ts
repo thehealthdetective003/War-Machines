@@ -1,4 +1,4 @@
-import type { AppState, GenerationSession, PlannedScene, ProductionBatchState, ProductionContext, ProductionOperation, SceneDirection, T2VPrompt, TimedScene } from '../types';
+import type { AppState, DeferredRepair, GenerationSession, PlannedScene, ProductionBatchState, ProductionContext, ProductionOperation, SceneDirection, T2VPrompt, TimedScene, ValidationFinding } from '../types';
 
 export const PRODUCTION_BATCH_TARGET=8;
 export const PRODUCTION_BATCH_MIN=6;
@@ -31,7 +31,7 @@ export function createProductionBatches(scenes:TimedScene[],plan:PlannedScene[]=
 const makeBatch=(index:number,scenes:TimedScene[]):ProductionBatchState=>({id:`BATCH_${String(index+1).padStart(3,'0')}`,index:index+1,sceneNumbers:scenes.map(scene=>scene.number),operation:'QUEUED',directionCompletedSceneNumbers:[],promptCompletedSceneNumbers:[],qaCompletedSceneNumbers:[],directionCorrectionCandidates:[],promptCorrectionSceneNumbers:[],directionCorrectionSceneNumbers:[],correctionIssues:{},alignmentSelections:[],contextSnapshot:null,correctionReason:null,lastCommittedAt:null,error:null});
 
 export function createProductionSession(scenes:TimedScene[],plan:PlannedScene[]=[]):GenerationSession{
-  const batches=createProductionBatches(scenes,plan);return {status:'paused',totalBatches:batches.length,currentBatch:0,batchStartScene:null,batchEndScene:null,completedScenes:0,startedAt:null,lastCommittedAt:null,error:null,operation:'QUEUED',activeBatchId:batches[0]?.id||null,batches,completedSceneNumbers:[],pendingSceneNumbers:scenes.map(scene=>scene.number),directionCompletedSceneNumbers:[],promptCompletedSceneNumbers:[],qaCompletedSceneNumbers:[],correctionPendingSceneNumbers:[],pauseReason:null,context:emptyContext()};
+  const batches=createProductionBatches(scenes,plan);return {status:'paused',totalBatches:batches.length,currentBatch:0,batchStartScene:null,batchEndScene:null,completedScenes:0,startedAt:null,lastCommittedAt:null,error:null,operation:'QUEUED',activeBatchId:batches[0]?.id||null,batches,completedSceneNumbers:[],pendingSceneNumbers:scenes.map(scene=>scene.number),directionCompletedSceneNumbers:[],promptCompletedSceneNumbers:[],qaCompletedSceneNumbers:[],correctionPendingSceneNumbers:[],pauseReason:null,context:emptyContext(),validationWarnings:[],deferredRepairs:[]};
 }
 
 export function createResumableProductionSession(scenes:TimedScene[],plan:PlannedScene[],directions:SceneDirection[],prompts:T2VPrompt[]):GenerationSession{
@@ -62,6 +62,16 @@ export function updateProductionBatch(session:GenerationSession,batchId:string,o
 
 export const mergeByNumber=<T extends {number:number}>(existing:T[],next:T[])=>{const values=new Map(existing.map(item=>[item.number,item]));next.forEach(item=>values.set(item.number,item));return [...values.values()].sort((a,b)=>a.number-b.number);};
 export const isQuotaOrRateLimitError=(error:unknown)=>{const value=`${error instanceof Error?`${error.name} ${error.message}`:String(error)}`.toLowerCase();return /quota|resource[_ -]?exhausted|credit|billing|rate[_ -]?limit|too many requests|429/.test(value);};
+
+export function mergeValidationWarnings(existing:ValidationFinding[],next:ValidationFinding[]):ValidationFinding[]{
+  const values=new Map(existing.map(item=>[`${item.sceneNumber}:${item.code}`,item]));next.filter(item=>item.severity==='WARNING').forEach(item=>values.set(`${item.sceneNumber}:${item.code}`,item));return [...values.values()].sort((a,b)=>a.sceneNumber-b.sceneNumber||a.code.localeCompare(b.code));
+}
+
+export function mergeDeferredRepairs(existing:DeferredRepair[],next:DeferredRepair[]):DeferredRepair[]{
+  const values=new Map(existing.map(item=>[`${item.operation}:${item.sceneNumber}`,item]));next.forEach(item=>{const key=`${item.operation}:${item.sceneNumber}`,prior=values.get(key);values.set(key,prior?{...item,attempts:Math.max(prior.attempts,item.attempts)}:item);});return [...values.values()].sort((a,b)=>a.sceneNumber-b.sceneNumber||a.operation.localeCompare(b.operation));
+}
+
+export function removeDeferredRepair(repairs:DeferredRepair[],sceneNumber:number,operation:'DIRECTION'|'PROMPT'):DeferredRepair[]{return repairs.filter(item=>item.sceneNumber!==sceneNumber||item.operation!==operation);}
 
 export function invalidateFromScene(state:AppState,firstChangedScene:number):AppState{
   const keep=(number:number)=>number<firstChangedScene,plannedScenes=state.plannedScenes.filter(item=>keep(item.number)),sceneDirections=state.sceneDirections.filter(item=>keep(item.number)),visualPrompts=state.visualPrompts.filter(item=>keep(item.number));

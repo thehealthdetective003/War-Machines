@@ -1,4 +1,4 @@
-import type { GenerationSession, ProductionBatchState, ProductionOperation } from '../types';
+import type { DeferredRepair, GenerationSession, ProductionBatchState, ProductionOperation, ValidationFinding } from '../types';
 import { emptyProductionContext } from './productionSession';
 
 export const idleGenerationSession=():GenerationSession=>({
@@ -11,7 +11,7 @@ export const idleGenerationSession=():GenerationSession=>({
   startedAt:null,
   lastCommittedAt:null,
   error:null,
-  operation:'QUEUED',activeBatchId:null,batches:[],completedSceneNumbers:[],pendingSceneNumbers:[],directionCompletedSceneNumbers:[],promptCompletedSceneNumbers:[],qaCompletedSceneNumbers:[],correctionPendingSceneNumbers:[],pauseReason:null,context:emptyProductionContext(),
+  operation:'QUEUED',activeBatchId:null,batches:[],completedSceneNumbers:[],pendingSceneNumbers:[],directionCompletedSceneNumbers:[],promptCompletedSceneNumbers:[],qaCompletedSceneNumbers:[],correctionPendingSceneNumbers:[],pauseReason:null,context:emptyProductionContext(),validationWarnings:[],deferredRepairs:[],
 });
 
 const operations:ProductionOperation[]=['QUEUED','PLANNING','PLANNED','ALIGNING','ALIGNED','DIRECTING','DIRECTION_CORRECTION','DIRECTED','GENERATING_PROMPTS','PROMPTS_GENERATED','PROMPT_CORRECTION','QA','COMPLETE'];
@@ -31,7 +31,7 @@ export function normalizeGenerationSession(value:unknown,completedScenes=0):Gene
     ...idleGenerationSession(),
     ...session,
     completedScenes:Number.isFinite(Number(session.completedScenes))?Number(session.completedScenes):completedScenes,
-    status:['idle','running','paused','interrupted','failed','complete'].includes(String(session.status))?session.status as GenerationSession['status']:'idle',
-    operation:operations.includes(session.operation as ProductionOperation)?session.operation as ProductionOperation:'QUEUED',activeBatchId:typeof session.activeBatchId==='string'?session.activeBatchId:null,batches:Array.isArray(session.batches)?session.batches.map(normalizeBatch).filter((item):item is ProductionBatchState=>item!==null):[],completedSceneNumbers:numbers(session.completedSceneNumbers),pendingSceneNumbers:numbers(session.pendingSceneNumbers),directionCompletedSceneNumbers:numbers(session.directionCompletedSceneNumbers),promptCompletedSceneNumbers:numbers(session.promptCompletedSceneNumbers),qaCompletedSceneNumbers:numbers(session.qaCompletedSceneNumbers),correctionPendingSceneNumbers:numbers(session.correctionPendingSceneNumbers),pauseReason:session.pauseReason||null,context:session.context||emptyProductionContext(),
+    status:['idle','running','paused','interrupted','failed','complete','complete_with_warnings','deferred_repairs'].includes(String(session.status))?session.status as GenerationSession['status']:'idle',
+    operation:operations.includes(session.operation as ProductionOperation)?session.operation as ProductionOperation:'QUEUED',activeBatchId:typeof session.activeBatchId==='string'?session.activeBatchId:null,batches:Array.isArray(session.batches)?session.batches.map(normalizeBatch).filter((item):item is ProductionBatchState=>item!==null):[],completedSceneNumbers:numbers(session.completedSceneNumbers),pendingSceneNumbers:numbers(session.pendingSceneNumbers),directionCompletedSceneNumbers:numbers(session.directionCompletedSceneNumbers),promptCompletedSceneNumbers:numbers(session.promptCompletedSceneNumbers),qaCompletedSceneNumbers:numbers(session.qaCompletedSceneNumbers),correctionPendingSceneNumbers:numbers(session.correctionPendingSceneNumbers),pauseReason:session.pauseReason||null,context:session.context||emptyProductionContext(),validationWarnings:Array.isArray(session.validationWarnings)?session.validationWarnings.filter(item=>item&&typeof item.code==='string'&&item.severity==='WARNING') as ValidationFinding[]:[],deferredRepairs:Array.isArray(session.deferredRepairs)?session.deferredRepairs.filter(item=>item&&Number.isInteger(Number(item.sceneNumber))&&item.severity==='BLOCKING_ERROR') as DeferredRepair[]:[],
   };
 }

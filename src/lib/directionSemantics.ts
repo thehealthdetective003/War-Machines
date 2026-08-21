@@ -12,7 +12,6 @@ export const isManufacturingVisualClaim=(value:string)=>/\b(assembl(?:e|es|ing|y
 export function lifecycleAlignmentIssues(claim:string,visualFamily:string,state?:string):string[]{
   const operational=isOperationalVisualClaim(claim),manufacturing=isManufacturingVisualClaim(claim),familyOperational=OPERATIONAL_FAMILIES.has(visualFamily),familyGraphic=GRAPHIC_FAMILIES.has(visualFamily),issues:string[]=[];
   if(operational&&!familyOperational&&!familyGraphic)issues.push('LIFECYCLE_CONTRADICTION');
-  if(operational&&familyOperational&&state&&state!=='C')issues.push('LIFECYCLE_CONTRADICTION');
   if(manufacturing&&familyOperational)issues.push('MANUFACTURING_AS_OPERATION_CONTRADICTION');
   return [...new Set(issues)];
 }

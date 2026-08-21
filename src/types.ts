@@ -317,7 +317,28 @@ export interface T2VPrompt {
   operationFingerprint?: string;
   generationSource?: 'API'|'LOCAL_GRAPHIC'|'LEGACY';
 }
-export type GenerationSessionStatus = 'idle' | 'running' | 'paused' | 'interrupted' | 'failed' | 'complete';
+export type ValidationSeverity='PASS'|'WARNING'|'REPAIRABLE_ERROR'|'BLOCKING_ERROR';
+export interface ValidationFinding {
+  code:string;
+  severity:ValidationSeverity;
+  sceneNumber:number;
+  message:string;
+  structuredRuleSource?:string;
+  expected?:unknown;
+  actual?:unknown;
+  repairHint?:string;
+}
+export interface DeferredRepair {
+  sceneNumber:number;
+  operation:'DIRECTION'|'PROMPT';
+  validationCode:string;
+  severity:'BLOCKING_ERROR';
+  attempts:number;
+  lastError:string;
+  dependencies:string[];
+  finding?:ValidationFinding;
+}
+export type GenerationSessionStatus = 'idle' | 'running' | 'paused' | 'interrupted' | 'failed' | 'complete'|'complete_with_warnings'|'deferred_repairs';
 export type ProductionOperation = 'QUEUED'|'PLANNING'|'PLANNED'|'ALIGNING'|'ALIGNED'|'DIRECTING'|'DIRECTION_CORRECTION'|'DIRECTED'|'GENERATING_PROMPTS'|'PROMPTS_GENERATED'|'PROMPT_CORRECTION'|'QA'|'COMPLETE';
 export type ProductionPauseReason = 'user'|'quota'|'rate_limit'|'storage'|'error'|null;
 export interface PersistedAlignmentSelection {
@@ -383,6 +404,8 @@ export interface GenerationSession {
   correctionPendingSceneNumbers: number[];
   pauseReason: ProductionPauseReason;
   context: ProductionContext;
+  validationWarnings:ValidationFinding[];
+  deferredRepairs:DeferredRepair[];
 }
 export interface AppState {
   projectSchemaVersion: number;
