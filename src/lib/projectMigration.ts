@@ -27,7 +27,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
   const rawPlan = Array.isArray(raw.plannedScenes) ? raw.plannedScenes.map((item:any,index:number)=>{
     const base={...item,state:resolvePlannedState(raw.topic,item?.stage_id,item?.product_visibility)};
     const timed=transcription?.scenes?.find((scene:any)=>Number(scene.number)===Number(item?.number))||transcription?.scenes?.[index];
-    return {...base,graphic_spec:item?.graphic_spec??(timed?deriveGraphicSceneSpec(raw.topic,timed,base):null)};
+    return {...base,graphic_spec:item?.graphic_spec??(timed?deriveGraphicSceneSpec(raw.topic,timed,base):null),alignmentFingerprint:item?.alignmentFingerprint||(raw.projectSchemaVersion<14?'legacy-preserved-v13':undefined)};
   }) : [];
   const showdownRoles=['ANTICIPATION','GROUND_REVEAL','HUMAN_SCALE','PREPARATION','DEPARTURE','AIRBORNE_ESTABLISHMENT','PERFORMANCE_PASS','COCKPIT_IMMERSION','ENVIRONMENTAL_SPECTACLE','OPERATIONAL_RESET','SECOND_PEAK','CONTROLLED_RETURN'];
   const cameraPlatforms=['GROUND_TRIPOD','GROUND_HANDHELD','RUNWAY_LONG_LENS','DISTANT_OBSERVATION','CHASE_AIRCRAFT','COCKPIT_MOUNTED','CANOPY_SIDE','VEHICLE_OR_DECK_MOUNTED'];
@@ -50,7 +50,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
   const planByNumber = new Map(rawPlan.map((item:any)=>[Number(item.number),item]));
   const repairedDirections = planValid ? rawDirections.map((item:any)=>{
     const plan:any=planByNumber.get(Number(item?.number));
-    return plan ? {...item,generation_duration_seconds:sceneDuration,chapter_id:plan.chapter_id,beat_id:plan.beat_id,visual_family:plan.visual_family,story_function:plan.story_function,visual_treatment:plan.visual_treatment,product_visibility:plan.product_visibility,showdown_role:plan.showdown_role,energy_level:plan.energy_level,camera_platform:plan.camera_platform,graphic_spec:plan.graphic_spec,reference_asset_ids:plan.reference_asset_ids,alignment_source:plan.alignment_source,alignment_confidence:plan.alignment_confidence,alignment_claim:plan.alignment_claim,stage_id:plan.stage_id,environment_ref:plan.environment_ref,state:plan.state,required_visible_features:ensureRequiredVisibleFeatures(item,plan),forbidden_elements:[...new Set([...(plan.forbidden_elements||[]),...(item.forbidden_elements||[])])]} : item;
+    return plan ? {...item,generation_duration_seconds:sceneDuration,chapter_id:plan.chapter_id,beat_id:plan.beat_id,visual_family:plan.visual_family,story_function:plan.story_function,visual_treatment:plan.visual_treatment,product_visibility:plan.product_visibility,showdown_role:plan.showdown_role,energy_level:plan.energy_level,camera_platform:plan.camera_platform,graphic_spec:plan.graphic_spec,reference_asset_ids:plan.reference_asset_ids,alignment_source:plan.alignment_source,alignment_confidence:plan.alignment_confidence,alignment_claim:plan.alignment_claim,stage_id:plan.stage_id,environment_ref:plan.environment_ref,state:plan.state,required_visible_features:ensureRequiredVisibleFeatures(item,plan),forbidden_elements:[...new Set([...(plan.forbidden_elements||[]),...(item.forbidden_elements||[])])],operationFingerprint:item.operationFingerprint||(raw.projectSchemaVersion<14?'legacy-preserved-v13':undefined)} : item;
   }) : rawDirections;
   const directionPrefixValid = planValid && !!transcription && repairedDirections.length <= transcription.scenes.length&&validateSceneDirections(repairedDirections,transcription.scenes,rawPlan,sceneDuration,{allowPartial:true}).length===0;
   const directionsValid = directionPrefixValid && repairedDirections.length === transcription.scenes.length;
@@ -72,7 +72,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
         continuity_notes: item.continuity_notes, quality_flags: item.quality_flags,
         action_description: String(item.action_description || ''), video_prompt: String(item.video_prompt || ''),
         voiceover: transcription.scenes[number - 1]?.text || '', stock_keywords: String(item.stock_keywords || ''),
-        omniSections:item.omniSections,
+        omniSections:item.omniSections,operationFingerprint:item.operationFingerprint||(raw.projectSchemaVersion<14?'legacy-preserved-v13':undefined),generationSource:item.generationSource||(raw.projectSchemaVersion<14?'LEGACY':undefined),
       };
       return base;
     })
@@ -101,7 +101,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     demoState: 'idle', demoScenes: [], demoSceneNumbers: [],
     t2vPromptProfile: profileSupported ? raw.t2vPromptProfile : 'omni-flash',
     generationSession,
-    projectSchemaVersion: 13,
+    projectSchemaVersion: 14,
   };
   generationSession=synchronizeProductionSession(generationSession,state);state.generationSession=productionComplete?{...generationSession,status:'complete',operation:'COMPLETE'}:generationSession;
   const reset = timingChanged || imageMode || !profileSupported || (!directionPrefixValid && repairedDirections.length > 0) || (rawPrompts.length > 0 && !preserveOutput);

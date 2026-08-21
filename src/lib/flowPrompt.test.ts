@@ -29,13 +29,14 @@ test('Veo uses descriptive negative-prompt grammar instead of no/don’t command
   assert.doesNotMatch(result, /Negative prompt: (?:No|Avoid|Do not)/i);
 });
 test('Omni receives only batch-relevant handoff records while Veo remains unchanged',()=>{
-  const handoff={schema:{name:'Handoff'},product:{official_name:'KJ-600'},dimensions_and_proportions:{overall_length:30},global_prompt_rules:{one_primary_action:true},production_stages:[{stage_id:'S01',environment_id:'E1',geometry_control:{primary_geometry_module_id:'M1'},visual_evidence:{reference_asset_ids:['R1']}},{stage_id:'S99',environment_id:'E99',geometry_control:{primary_geometry_module_id:'M99'},visual_evidence:{reference_asset_ids:['R99']}}],environments:[{environment_id:'E1'},{environment_id:'E99'}],geometry_modules:[{module_id:'M1'},{module_id:'M99'}],reference_assets:[{asset_id:'R1'},{asset_id:'R99'}],stage_transitions:[{from_stage_id:'S00',to_stage_id:'S01'},{from_stage_id:'S01',to_stage_id:'S02'},{from_stage_id:'S98',to_stage_id:'S99'}]};
+  const handoff={schema:{name:'Handoff'},product:{official_name:'KJ-600'},dimensions_and_proportions:{overall_length:30},global_prompt_rules:{one_primary_action:true},production_stages:[{stage_id:'S01',environment_id:'E1',geometry_control:{primary_geometry_module_id:'M1'},visual_evidence:{reference_asset_ids:['R1']}},{stage_id:'S99',environment_id:'E99',geometry_control:{primary_geometry_module_id:'M99'},visual_evidence:{reference_asset_ids:['R99']}}],environments:[{environment_id:'E1'},{environment_id:'E99'}],geometry_modules:[{module_id:'M1'},{module_id:'M99'}],reference_assets:[{asset_id:'R1',identity:'KJ-600',configuration:'carrier AEW',production_state:'complete',viewpoint:'rear',visible_geometry_features:['four-fin tail'],allowed_usage:['identity'],forbidden_usage:['internal layout'],facility_status:'unassigned',confidence:'HIGH'},{asset_id:'R99',identity:'unrelated'}],stage_transitions:[{from_stage_id:'S00',to_stage_id:'S01'},{from_stage_id:'S01',to_stage_id:'S02'},{from_stage_id:'S98',to_stage_id:'S99'}]};
   const scopedTopic={...topic,_production_handoff:handoff} as any;
   const omni:any=buildFlowContext(scopedTopic,[direction],'omni-flash');
   assert.deepEqual(omni.authoritative_production_handoff.production_stages.map((item:any)=>item.stage_id),['S01']);
   assert.deepEqual(omni.authoritative_production_handoff.environments.map((item:any)=>item.environment_id),['E1']);
   assert.deepEqual(omni.authoritative_production_handoff.geometry_modules.map((item:any)=>item.module_id),['M1']);
   assert.deepEqual(omni.authoritative_production_handoff.reference_assets.map((item:any)=>item.asset_id),['R1']);
+  assert.deepEqual(omni.authoritative_production_handoff.reference_assets[0],handoff.reference_assets[0]);
   assert.equal(omni.authoritative_production_handoff.stage_transitions.length,2);
   assert.equal(omni.authoritative_production_handoff.product.official_name,'KJ-600');
   assert.equal('authoritative_production_handoff' in buildFlowContext(scopedTopic,[direction],'veo-flow'),false);

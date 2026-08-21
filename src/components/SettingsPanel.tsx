@@ -35,7 +35,8 @@ import {
 import { DEFAULT_PRODUCTION_TEMPLATE } from '../lib/productionTemplate';
 import { HandoffValidationResult, validateVisualProductionHandoff } from '../lib/handoffValidation';
 import { positiveSceneDuration } from '../lib/sceneDuration';
-import { createResumableProductionSession } from '../lib/productionSession';
+import { createProductionSession } from '../lib/productionSession';
+import { buildDocumentaryScenePlan } from '../lib/scenePlanner';
 
 interface SettingsPanelProps {
   state: AppState;
@@ -112,8 +113,8 @@ export function SettingsPanel({ state, setState, open, onOpenChange }: SettingsP
               <Select disabled={state.generationSession.status==='running'} value={settings.model} onValueChange={(val) => {
                 if(val===settings.model)return;
                 setSettings(s => ({...s, model: val}));
-                if(state.visualPrompts.length)setState(previous=>({...previous,phase:2,visualPrompts:[],demoState:'idle',demoScenes:[],demoSceneNumbers:[],generationSession:createResumableProductionSession(previous.voiceoverTranscription?.scenes||[],previous.plannedScenes,previous.sceneDirections,[])}));
-                if(state.visualPrompts.length)toast.info('Prompt outputs were invalidated because the Gemini model changed. Directions were preserved.');
+                if(state.plannedScenes.length||state.sceneDirections.length||state.visualPrompts.length)setState(previous=>{const scenes=previous.voiceoverTranscription?.scenes||[],preview=previous.topic?buildDocumentaryScenePlan(previous.topic,scenes):[];return {...previous,phase:2,plannedScenes:[],sceneDirections:[],visualPrompts:[],demoState:'idle',demoScenes:[],demoSceneNumbers:[],generationSession:createProductionSession(scenes,preview)};});
+                if(state.plannedScenes.length||state.sceneDirections.length||state.visualPrompts.length)toast.info('Model-dependent alignment, directions, and prompts were invalidated. Setup inputs were preserved.');
               }}>
                 <SelectTrigger className="bg-muted/20 border border-border/40 h-9 font-mono text-xs focus:ring-primary/40">
                   <SelectValue />

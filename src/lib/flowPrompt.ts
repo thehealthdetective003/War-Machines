@@ -1,4 +1,4 @@
-import { SceneDirection, T2VPromptProfile, TopicBrief } from '../types';
+import { PlannedScene, SceneDirection, T2VPromptProfile, TopicBrief } from '../types';
 import { generatedClipDuration } from './sceneDuration';
 
 const words = (value: string) => value.trim().split(/\s+/).filter(Boolean);
@@ -53,7 +53,8 @@ export function profileInstruction(profile: T2VPromptProfile): string {
     : `Write compact cinematography directions optimized for Veo in Google Flow. Emphasize subject composition, shot scale, lens, camera path, controlled action, lighting, material realism, and continuity. ${common}`;
 }
 
-export function buildFocusedProductionContext(topic: TopicBrief | null, directions: SceneDirection[]) {
+type FocusedContextItem=Pick<SceneDirection,'stage_id'|'environment_ref'|'beat_id'|'reference_asset_ids'>|Pick<PlannedScene,'stage_id'|'environment_ref'|'beat_id'|'reference_asset_ids'>;
+export function buildFocusedProductionContext(topic: TopicBrief | null, directions: FocusedContextItem[]) {
   const handoff=(topic as any)?._production_handoff;
   if(!handoff||typeof handoff!=='object') return null;
   const stageIds=new Set(directions.map(direction=>direction.stage_id).filter(Boolean));
@@ -83,6 +84,11 @@ export function buildFocusedProductionContext(topic: TopicBrief | null, directio
     selected_beats:selectedBeats,
     stage_transitions:(handoff.stage_transitions||[]).filter((transition:any)=>stageIds.has(transition.from_stage_id)||stageIds.has(transition.to_stage_id)),
   };
+}
+
+export function focusedContextCharacterSavings(topic:TopicBrief|null,focused:unknown):number{
+  const handoff=(topic as any)?._production_handoff;if(!handoff)return 0;
+  return Math.max(0,JSON.stringify(handoff).length-JSON.stringify(focused).length);
 }
 
 function stripInjectedClauses(value: string): string {

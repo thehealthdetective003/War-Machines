@@ -49,7 +49,7 @@ function WorkspaceLoader({ label = 'Preparing your project workspace' }: { label
   );
 }
 export const INITIAL_STATE: AppState = {
-  projectSchemaVersion: 13,
+  projectSchemaVersion: 14,
   id: undefined,
   projectName: 'Untitled Manufacturing Sequence',
   projectFormat: 'standard-lifecycle',
@@ -600,7 +600,6 @@ export default function App() {
                       <Phase4Visuals
                         state={state}
                         setState={setState}
-                        commitProjectState={commitProjectState}
                       />
                     ) : null}
                   </Suspense>

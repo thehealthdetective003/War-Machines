@@ -28,7 +28,7 @@ export function createProductionBatches(scenes:TimedScene[],plan:PlannedScene[]=
   }
   return batches;
 }
-const makeBatch=(index:number,scenes:TimedScene[]):ProductionBatchState=>({id:`BATCH_${String(index+1).padStart(3,'0')}`,index:index+1,sceneNumbers:scenes.map(scene=>scene.number),operation:'QUEUED',directionCompletedSceneNumbers:[],promptCompletedSceneNumbers:[],qaCompletedSceneNumbers:[],directionCorrectionCandidates:[],promptCorrectionSceneNumbers:[],correctionReason:null,lastCommittedAt:null,error:null});
+const makeBatch=(index:number,scenes:TimedScene[]):ProductionBatchState=>({id:`BATCH_${String(index+1).padStart(3,'0')}`,index:index+1,sceneNumbers:scenes.map(scene=>scene.number),operation:'QUEUED',directionCompletedSceneNumbers:[],promptCompletedSceneNumbers:[],qaCompletedSceneNumbers:[],directionCorrectionCandidates:[],promptCorrectionSceneNumbers:[],directionCorrectionSceneNumbers:[],correctionIssues:{},alignmentSelections:[],contextSnapshot:null,correctionReason:null,lastCommittedAt:null,error:null});
 
 export function createProductionSession(scenes:TimedScene[],plan:PlannedScene[]=[]):GenerationSession{
   const batches=createProductionBatches(scenes,plan);return {status:'paused',totalBatches:batches.length,currentBatch:0,batchStartScene:null,batchEndScene:null,completedScenes:0,startedAt:null,lastCommittedAt:null,error:null,operation:'QUEUED',activeBatchId:batches[0]?.id||null,batches,completedSceneNumbers:[],pendingSceneNumbers:scenes.map(scene=>scene.number),directionCompletedSceneNumbers:[],promptCompletedSceneNumbers:[],qaCompletedSceneNumbers:[],correctionPendingSceneNumbers:[],pauseReason:null,context:emptyContext()};
@@ -52,7 +52,7 @@ export function synchronizeProductionSession(session:GenerationSession,state:Pic
   const all=state.voiceoverTranscription?.scenes.map(item=>item.number)||[],directions=uniqueSorted(state.sceneDirections.map(item=>item.number)),prompts=uniqueSorted(state.visualPrompts.map(item=>item.number)),completed=all.filter(number=>prompts.includes(number));
   const batches=session.batches.map(batch=>({...batch,directionCompletedSceneNumbers:batch.sceneNumbers.filter(number=>directions.includes(number)),promptCompletedSceneNumbers:batch.sceneNumbers.filter(number=>prompts.includes(number)),qaCompletedSceneNumbers:batch.sceneNumbers.filter(number=>prompts.includes(number)&&!batch.promptCorrectionSceneNumbers.includes(number))}));
   const pending=all.filter(number=>!completed.includes(number)),active=batches.find(batch=>batch.operation!=='COMPLETE')||null;
-  return {...session,batches,totalBatches:batches.length,currentBatch:active?.index||batches.length,activeBatchId:active?.id||null,batchStartScene:active?.sceneNumbers[0]??null,batchEndScene:active?.sceneNumbers.at(-1)??null,completedScenes:completed.length,completedSceneNumbers:completed,pendingSceneNumbers:pending,directionCompletedSceneNumbers:directions,promptCompletedSceneNumbers:prompts,qaCompletedSceneNumbers:completed,correctionPendingSceneNumbers:uniqueSorted(batches.flatMap(batch=>[...batch.directionCorrectionCandidates.map(item=>item.number),...batch.promptCorrectionSceneNumbers])),context:deriveProductionContext(state)};
+  return {...session,batches,totalBatches:batches.length,currentBatch:active?.index||batches.length,activeBatchId:active?.id||null,batchStartScene:active?.sceneNumbers[0]??null,batchEndScene:active?.sceneNumbers.at(-1)??null,completedScenes:completed.length,completedSceneNumbers:completed,pendingSceneNumbers:pending,directionCompletedSceneNumbers:directions,promptCompletedSceneNumbers:prompts,qaCompletedSceneNumbers:completed,correctionPendingSceneNumbers:uniqueSorted(batches.flatMap(batch=>[...batch.directionCorrectionSceneNumbers,...batch.promptCorrectionSceneNumbers])),context:deriveProductionContext(state)};
 }
 
 export function updateProductionBatch(session:GenerationSession,batchId:string,operation:ProductionOperation,patch:Partial<ProductionBatchState>={}):GenerationSession{
@@ -71,4 +71,9 @@ export function invalidateFromScene(state:AppState,firstChangedScene:number):App
 
 export function firstChangedTranscriptionScene(previous:TimedScene[],next:TimedScene[]):number|null{
   const length=Math.max(previous.length,next.length);for(let index=0;index<length;index++){const a=previous[index],b=next[index];if(!a||!b||a.number!==b.number||a.start!==b.start||a.end!==b.end||a.text!==b.text||a.silent!==b.silent)return index+1;}return null;
+}
+
+export function replaceDirectionAndInvalidatePrompt(state:AppState,direction:SceneDirection):AppState{
+  const sceneDirections=mergeByNumber(state.sceneDirections,[direction]),visualPrompts=state.visualPrompts.filter(prompt=>prompt.number!==direction.number),session=createResumableProductionSession(state.voiceoverTranscription?.scenes||[],state.plannedScenes,sceneDirections,visualPrompts);
+  return {...state,phase:2,sceneDirections,visualPrompts,generationSession:synchronizeProductionSession(session,{...state,sceneDirections,visualPrompts})};
 }

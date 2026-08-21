@@ -1,24 +1,74 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
 import type { AppState, ProductionContext, SceneDirection, T2VPrompt } from '../types';
-import { buildFlowContext, finalizeFlowPrompt, profileInstruction } from './flowPrompt';
+import { buildFlowContext, finalizeFlowPrompt, focusedContextCharacterSavings } from './flowPrompt';
 import { compileOmniPrompt, normalizeOmniSections } from './omniPromptCompiler';
 import { isAdvisoryPromptQualityIssue, promptQualityIssues } from './promptQuality';
-import { validateBatchNumbers, validateBatchResponse } from './promptBatch';
+import { composeOmniPromptInstruction, composeVeoPromptInstruction, PROMPT_COMPILER_VERSION, PROMPT_INSTRUCTION_VERSION } from './productionInstructions';
+import { operationFingerprint } from './operationFingerprint';
+import { isReusableFingerprint } from './operationFingerprint';
+import { recordApiCall, recordLocalGraphicCompilation, recordPartialAcceptance, recordUnusedFieldsRemoved } from './apiDiagnostics';
 
-const responseSchema={type:Type.ARRAY,items:{type:Type.OBJECT,required:['number','action_description','video_prompt','stock_keywords'],properties:{number:{type:Type.INTEGER},action_description:{type:Type.STRING},video_prompt:{type:Type.STRING},stock_keywords:{type:Type.STRING},continuity_notes:{type:Type.STRING},quality_flags:{type:Type.ARRAY,items:{type:Type.STRING}}}}};
-const omniSectionsProperties={cinematography:{type:Type.STRING},subject:{type:Type.STRING},action:{type:Type.STRING},environment:{type:Type.STRING},style_lighting:{type:Type.STRING},product_state:{type:Type.STRING},sound:{type:Type.STRING},exclusions:{type:Type.STRING}};
-const omniResponseSchema={type:Type.ARRAY,items:{type:Type.OBJECT,required:['number','action_description','prompt_sections','stock_keywords'],properties:{number:{type:Type.INTEGER},action_description:{type:Type.STRING},stock_keywords:{type:Type.STRING},continuity_notes:{type:Type.STRING},prompt_sections:{type:Type.OBJECT,required:Object.keys(omniSectionsProperties),properties:omniSectionsProperties}}}};
+export interface ContentGenerator {models:{generateContent:(request:any)=>Promise<{text?:string}>};}
+const responseSchema={type:Type.ARRAY,items:{type:Type.OBJECT,required:['number','video_prompt'],properties:{number:{type:Type.INTEGER},video_prompt:{type:Type.STRING}}}};
+const omniSectionsProperties={cinematography:{type:Type.STRING},subject:{type:Type.STRING},environment:{type:Type.STRING},style_lighting:{type:Type.STRING},exclusions:{type:Type.STRING}};
+const omniResponseSchema={type:Type.ARRAY,items:{type:Type.OBJECT,required:['number','prompt_sections'],properties:{number:{type:Type.INTEGER},prompt_sections:{type:Type.OBJECT,required:Object.keys(omniSectionsProperties),properties:omniSectionsProperties}}}};
 
-const omniInstruction=(retry?:string)=>`Return one structured Omni Flash direction for every supplied scene and copy each scene number exactly. Fill prompt_sections with complete natural-language clauses for cinematography, subject, literal visible action, environment, style_lighting, product_state, synchronized ambient sound, and concise scene exclusions. Honor visual_treatment, visual_family, product_visibility, showdown_role, energy_level, camera_platform, and graphic_spec exactly. LIVE_ACTION_T2V is physical documentary footage. For STATIC_GRAPHIC_T2V and MOTION_GRAPHIC_T2V, explain only graphic_spec.visual_claim with its assigned flat-vector composition, motion pattern, nonverbal annotation devices, and maximum animated-element count. Use one clear concept, a static background, stable simplified geometry, limited keyframed motion, and a final-quarter comprehension hold. The graphic must be complete without editor work: never request labels, blank cards, later typography, numbers, maps with readable locations, speech bubbles, fake HUDs, or precise generated data. For an aviation showdown scene, use the supplied physically credible filming platform, one continuous aerodynamically plausible action, stable scale and geometry, environmental response caused by the aircraft, and a settled ending. The role controls the shot's narrative function: establish before release, vary exterior and operator perspective, use grounded resets, make a later peak materially stronger, and resolve through stable return. Never turn a scene with the supplied generation duration into a rapid internal montage. OPERATIONAL_CONTEXT, DYNAMIC_TESTING, and DELIVERY_AND_ROLLOUT must preserve the supplied starting state, one physically plausible maneuver, propulsion or control behavior, environmental response, one achievable camera, and a stable ending configuration across the full clip. Never add weapon discharge, explosions, active combat, impossible aerobatics, unverified flares or stores, invented unit markings, or exact-event/location claims. For NONE visibility omit the product; DETAIL_ONLY stays module-scoped; PARTIAL preserves incompleteness; FULL preserves canonical identity. The application compiles final prose and temporal progression. Use one primary action and camera behavior. Treat the handoff as authoritative; preserve counts, state, geometry, chronology, and continuity. Never invent internals, future components, readable graphic text, labels, logos, maps, or precise generated data. Do not return voiceover, duration, headings, raw JSON text, or abstract narration.${retry?` A previous attempt failed the automatic quality gate: ${retry}. Regenerate only these scenes with one coherent camera, concise complete clauses, and the required identity anchors.`:''}`;
+export interface PromptFailure {number:number;issues:string[];}
+export interface PromptAttemptResult {accepted:T2VPrompt[];failed:PromptFailure[];reason:string|null;apiRequestedSceneNumbers:number[];locallyCompiledSceneNumbers:number[];}
 
-export interface PromptAttemptResult { accepted:T2VPrompt[]; needsCorrection:T2VPrompt[]; reason:string|null; }
+const blockingIssues=(prompt:T2VPrompt,direction:SceneDirection)=>promptQualityIssues(prompt,direction).filter(issue=>!isAdvisoryPromptQualityIssue(issue));
+const keywords=(direction:SceneDirection)=>[direction.subject,direction.primary_action,direction.environment_description,String(direction.visual_family||'').replaceAll('_',' ')].join(' ').toLowerCase().match(/[a-z0-9-]{4,}/g)?.filter((value,index,list)=>list.indexOf(value)===index).slice(0,10).join(', ')||'';
+const metadata=(direction:SceneDirection)=>({number:direction.number,stage_id:direction.stage_id,state:direction.state,action_description:direction.primary_action,voiceover:direction.voiceover,stock_keywords:keywords(direction),continuity_notes:direction.continuity_from_previous});
+const productText=(state:Pick<AppState,'topic'>)=>`${(state.topic as any)?._production_handoff?.product?.product_class||''} ${state.topic?.topic?.product||''}`;
 
-export async function requestPromptAttempt(ai:GoogleGenAI,model:string,state:Pick<AppState,'topic'|'t2vPromptProfile'>,selected:SceneDirection[],qualityRetry?:string,persistentContext?:ProductionContext):Promise<PromptAttemptResult>{
-  const omni=state.t2vPromptProfile==='omni-flash';
-  const response=await ai.models.generateContent({model,contents:JSON.stringify({persistent_context:persistentContext||null,prompt_context:buildFlowContext(state.topic,selected,state.t2vPromptProfile)}),config:{responseMimeType:'application/json',responseSchema:omni?omniResponseSchema:responseSchema,systemInstruction:omni?omniInstruction(qualityRetry):`Create direct text-to-video prompts only. Return exactly one item per supplied scene and copy its number. Do not return or rewrite voiceover. Use the supplied subject, primary action, supporting motion, environment, camera, lighting, material, transition, continuity, visible features and assembly state. Do not invent components or extra actions. ${profileInstruction(state.t2vPromptProfile)}${qualityRetry?` A previous attempt failed the automatic quality gate: ${qualityRetry}. Regenerate only these scenes with one coherent camera, concise complete clauses, and required identity anchors.`:''}`}});
-  const parsed=JSON.parse(response.text||'[]'),raw=omni?validateBatchNumbers(parsed,selected):validateBatchResponse(parsed,selected),byNumber=new Map(raw.map((item:any)=>[Number(item.number),item]));
-  const prompts=selected.map(direction=>{const item:any=byNumber.get(direction.number);if(!omni)return {number:direction.number,stage_id:direction.stage_id,state:direction.state,action_description:String(item.action_description||direction.primary_action),video_prompt:finalizeFlowPrompt(String(item.video_prompt),direction,state.topic,state.t2vPromptProfile),voiceover:direction.voiceover,stock_keywords:String(item.stock_keywords||''),continuity_notes:String(item.continuity_notes||direction.continuity_from_previous),quality_flags:Array.isArray(item.quality_flags)?item.quality_flags:[]} as T2VPrompt;if(!item?.prompt_sections||typeof item.prompt_sections!=='object')throw new Error(`Scene ${direction.number} has no structured Omni prompt sections.`);const {sections}=normalizeOmniSections(item.prompt_sections,direction,state.topic);return {number:direction.number,stage_id:direction.stage_id,state:direction.state,action_description:String(item.action_description||direction.primary_action),video_prompt:compileOmniPrompt(sections,direction),voiceover:direction.voiceover,stock_keywords:String(item.stock_keywords||''),continuity_notes:String(item.continuity_notes||direction.continuity_from_previous),quality_flags:[],omniSections:sections} as T2VPrompt;});
-  const audited=prompts.map((prompt,index)=>({...prompt,quality_flags:promptQualityIssues(prompt,selected[index])})),needsCorrection=audited.filter(prompt=>prompt.quality_flags?.some(issue=>!isAdvisoryPromptQualityIssue(issue))),failedNumbers=new Set(needsCorrection.map(item=>item.number)),accepted=audited.filter(item=>!failedNumbers.has(item.number));
-  const reason=needsCorrection.length?`scene${needsCorrection.length>1?'s':''} ${needsCorrection.map(item=>item.number).join(', ')}: ${needsCorrection.flatMap(item=>item.quality_flags||[]).filter((value,index,list)=>list.indexOf(value)===index).join(', ')}`:null;
-  return {accepted,needsCorrection,reason};
+export function promptOperationFingerprint(state:Pick<AppState,'topic'|'t2vPromptProfile'>,model:string,direction:SceneDirection,persistentContext?:ProductionContext):string{
+  const kind=direction.graphic_spec?'local-graphic':'prompt';
+  return operationFingerprint(kind,PROMPT_COMPILER_VERSION,{model:kind==='local-graphic'?'LOCAL':model,profile:state.t2vPromptProfile,instructionVersion:PROMPT_INSTRUCTION_VERSION,instruction:kind==='local-graphic'?'deterministic-graphic-compiler':state.t2vPromptProfile==='omni-flash'?composeOmniPromptInstruction([direction],productText(state)):composeVeoPromptInstruction([direction],productText(state)),persistentContext:persistentContext||null,promptContext:buildFlowContext(state.topic,[direction],state.t2vPromptProfile)});
+}
+
+export function partitionReusablePrompts(existing:T2VPrompt[],directions:SceneDirection[],state:Pick<AppState,'topic'|'t2vPromptProfile'>,model:string,persistentContext?:ProductionContext){
+  const directionByNumber=new Map(directions.map(direction=>[direction.number,direction])),reusable:T2VPrompt[]=[],staleSceneNumbers:number[]=[];
+  existing.forEach(prompt=>{const direction=directionByNumber.get(prompt.number);if(!direction)return;const expected=promptOperationFingerprint(state,model,direction,persistentContext);if(isReusableFingerprint(prompt.operationFingerprint,expected))reusable.push(prompt);else staleSceneNumbers.push(prompt.number);});
+  const reusableNumbers=new Set(reusable.map(prompt=>prompt.number));return {reusable:reusable.sort((a,b)=>a.number-b.number),staleSceneNumbers:[...new Set(staleSceneNumbers)].sort((a,b)=>a-b),missingDirections:directions.filter(direction=>!reusableNumbers.has(direction.number))};
+}
+
+export function compileLocalGraphicPrompt(state:Pick<AppState,'topic'|'t2vPromptProfile'>,direction:SceneDirection,persistentContext?:ProductionContext):{prompt:T2VPrompt|null;failure:PromptFailure|null}{
+  if(!direction.graphic_spec)return {prompt:null,failure:{number:direction.number,issues:['MISSING_GRAPHIC_SPEC']}};
+  const fingerprint=promptOperationFingerprint(state,'LOCAL',direction,persistentContext);
+  let prompt:T2VPrompt;
+  if(state.t2vPromptProfile==='omni-flash'){
+    const {sections}=normalizeOmniSections({},direction,state.topic);
+    prompt={...metadata(direction),video_prompt:compileOmniPrompt(sections,direction),quality_flags:[],omniSections:sections,operationFingerprint:fingerprint,generationSource:'LOCAL_GRAPHIC'};
+  }else prompt={...metadata(direction),video_prompt:finalizeFlowPrompt('',direction,state.topic,state.t2vPromptProfile),quality_flags:[],operationFingerprint:fingerprint,generationSource:'LOCAL_GRAPHIC'};
+  const issues=blockingIssues(prompt,direction);prompt.quality_flags=promptQualityIssues(prompt,direction);
+  if(issues.length)return {prompt:null,failure:{number:direction.number,issues}};
+  recordLocalGraphicCompilation();return {prompt,failure:null};
+}
+
+const failureReason=(failures:PromptFailure[])=>failures.length?`scene${failures.length===1?'':'s'} ${failures.map(item=>`${item.number} (${item.issues.join(', ')})`).join('; ')}`:null;
+
+export async function requestPromptAttempt(ai:ContentGenerator,model:string,state:Pick<AppState,'topic'|'t2vPromptProfile'>,selected:SceneDirection[],qualityRetry?:string,persistentContext?:ProductionContext):Promise<PromptAttemptResult>{
+  const localDirections=selected.filter(direction=>Boolean(direction.graphic_spec)),apiDirections=selected.filter(direction=>!direction.graphic_spec),accepted:T2VPrompt[]=[],failed:PromptFailure[]=[],locallyCompiledSceneNumbers:number[]=[];
+  localDirections.forEach(direction=>{const result=compileLocalGraphicPrompt(state,direction,persistentContext);if(result.prompt){accepted.push(result.prompt);locallyCompiledSceneNumbers.push(direction.number);}else if(result.failure)failed.push(result.failure);});
+  if(!apiDirections.length){recordPartialAcceptance(accepted.length,failed.length,Boolean(qualityRetry));return {accepted,failed,reason:failureReason(failed),apiRequestedSceneNumbers:[],locallyCompiledSceneNumbers};}
+  const omni=state.t2vPromptProfile==='omni-flash',focused=buildFlowContext(state.topic,apiDirections,state.t2vPromptProfile),instruction=omni?composeOmniPromptInstruction(apiDirections,productText(state),qualityRetry):composeVeoPromptInstruction(apiDirections,productText(state),qualityRetry);
+  const focusedHandoff=(focused as any).authoritative_production_handoff,estimatedInputCharactersAvoided=focusedHandoff?focusedContextCharacterSavings(state.topic,focusedHandoff):0;
+  recordApiCall('prompt',apiDirections.length,{correction:Boolean(qualityRetry),estimatedInputCharactersAvoided});recordUnusedFieldsRemoved(apiDirections.length*(omni?5:4));
+  const response=await ai.models.generateContent({model,contents:JSON.stringify({persistent_context:persistentContext||null,prompt_context:focused}),config:{responseMimeType:'application/json',responseSchema:omni?omniResponseSchema:responseSchema,systemInstruction:instruction}});
+  let parsed:unknown;try{parsed=JSON.parse(response.text||'[]');}catch{parsed=null;}
+  const rawItems=Array.isArray(parsed)?parsed:[];
+  for(const direction of apiDirections){
+    const matches=rawItems.filter((item:any)=>Number(item?.number)===direction.number);
+    if(matches.length!==1){failed.push({number:direction.number,issues:[matches.length?'DUPLICATE_SCENE_OUTPUT':'MISSING_OR_MALFORMED_SCENE_OUTPUT']});continue;}
+    const item:any=matches[0];
+    try{
+      let prompt:T2VPrompt;
+      if(omni){if(!item.prompt_sections||typeof item.prompt_sections!=='object')throw new Error('MISSING_PROMPT_SECTIONS');const {sections}=normalizeOmniSections(item.prompt_sections,direction,state.topic);prompt={...metadata(direction),video_prompt:compileOmniPrompt(sections,direction),quality_flags:[],omniSections:sections,operationFingerprint:promptOperationFingerprint(state,model,direction,persistentContext),generationSource:'API'};}
+      else {if(typeof item.video_prompt!=='string'||!item.video_prompt.trim())throw new Error('MISSING_VIDEO_PROMPT');prompt={...metadata(direction),video_prompt:finalizeFlowPrompt(item.video_prompt,direction,state.topic,state.t2vPromptProfile),quality_flags:[],operationFingerprint:promptOperationFingerprint(state,model,direction,persistentContext),generationSource:'API'};}
+      const allIssues=promptQualityIssues(prompt,direction),blocking=allIssues.filter(issue=>!isAdvisoryPromptQualityIssue(issue));prompt.quality_flags=allIssues;
+      if(blocking.length)failed.push({number:direction.number,issues:blocking});else accepted.push(prompt);
+    }catch(error){failed.push({number:direction.number,issues:[error instanceof Error?error.message:'INVALID_PROMPT_OUTPUT']});}
+  }
+  recordPartialAcceptance(accepted.length,failed.length,Boolean(qualityRetry));
+  return {accepted:accepted.sort((a,b)=>a.number-b.number),failed,reason:failureReason(failed),apiRequestedSceneNumbers:apiDirections.map(item=>item.number),locallyCompiledSceneNumbers};
 }

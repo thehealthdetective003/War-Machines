@@ -252,6 +252,8 @@ export interface PlannedScene {
   semantic_group_id?: string;
   semantic_group_beat_id?: string | null;
   semantic_group_intent?: string;
+  /** Deterministic dependency fingerprint for the paid alignment that produced this assignment. */
+  alignmentFingerprint?: string;
 }
 export interface TemporalAction {
   opening_state: string;
@@ -298,6 +300,8 @@ export interface SceneDirection {
   required_visible_features: string[];
   forbidden_elements: string[];
   temporal_action?: TemporalAction;
+  /** Deterministic dependency fingerprint for the paid direction result. */
+  operationFingerprint?: string;
 }
 export interface T2VPrompt {
   number: number;
@@ -310,10 +314,23 @@ export interface T2VPrompt {
   voiceover: string;
   stock_keywords: string;
   omniSections?: OmniPromptSections;
+  /** Deterministic dependency fingerprint for the paid or locally compiled prompt result. */
+  operationFingerprint?: string;
+  generationSource?: 'API'|'LOCAL_GRAPHIC'|'LEGACY';
 }
 export type GenerationSessionStatus = 'idle' | 'running' | 'paused' | 'interrupted' | 'failed' | 'complete';
 export type ProductionOperation = 'QUEUED'|'PLANNING'|'PLANNED'|'ALIGNING'|'ALIGNED'|'DIRECTING'|'DIRECTION_CORRECTION'|'DIRECTED'|'GENERATING_PROMPTS'|'PROMPTS_GENERATED'|'PROMPT_CORRECTION'|'QA'|'COMPLETE';
 export type ProductionPauseReason = 'user'|'quota'|'rate_limit'|'storage'|'error'|null;
+export interface PersistedAlignmentSelection {
+  group_id:string;
+  source:'ENGINE_BEAT'|'VO_FALLBACK';
+  beat_id:string|null;
+  confidence:number;
+  visual_claim:string;
+  graphic_required?:boolean;
+  graphic_scene_numbers?:number[];
+  operationFingerprint:string;
+}
 export interface ProductionBatchState {
   id:string;
   index:number;
@@ -324,6 +341,10 @@ export interface ProductionBatchState {
   qaCompletedSceneNumbers:number[];
   directionCorrectionCandidates:SceneDirection[];
   promptCorrectionSceneNumbers:number[];
+  directionCorrectionSceneNumbers:number[];
+  correctionIssues:Record<string,string[]>;
+  alignmentSelections:PersistedAlignmentSelection[];
+  contextSnapshot:ProductionContext|null;
   correctionReason:string|null;
   lastCommittedAt:string|null;
   error:string|null;
