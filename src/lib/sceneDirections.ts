@@ -64,10 +64,11 @@ export function mergeDirectionMetadata(generated: any[], timedScenes: TimedScene
   });
 }
 
-export function validateSceneDirections(directions: unknown, timedScenes: TimedScene[], plannedScenes?: PlannedScene[], generationDurationSeconds?: number): string[] {
+export function validateSceneDirections(directions: unknown, timedScenes: TimedScene[], plannedScenes?: PlannedScene[], generationDurationSeconds?: number, options:{allowPartial?:boolean}={}): string[] {
   if (!Array.isArray(directions)) return ['Directions must be a JSON array.'];
   const errors: string[] = [];
-  if (directions.length !== timedScenes.length) errors.push(`Expected ${timedScenes.length} scenes; found ${directions.length}.`);
+  if (!options.allowPartial&&directions.length !== timedScenes.length) errors.push(`Expected ${timedScenes.length} scenes; found ${directions.length}.`);
+  const timedByNumber=new Map(timedScenes.map(scene=>[scene.number,scene]));
   const seen = new Set<number>();
   directions.forEach((direction: any, index) => {
     const label = `Scene ${index + 1}`;
@@ -75,7 +76,7 @@ export function validateSceneDirections(directions: unknown, timedScenes: TimedS
     if (!Number.isInteger(number)) errors.push(`${label}: number must be an integer.`);
     if (seen.has(number)) errors.push(`${label}: duplicate scene number ${number}.`);
     seen.add(number);
-    const timed = timedScenes[number - 1];
+    const timed = timedByNumber.get(number);
     if (!timed) { errors.push(`${label}: scene number ${number} is outside the transcript.`); return; }
     if (Math.abs(Number(direction.start) - timed.start) > 0.001 || Math.abs(Number(direction.end) - timed.end) > 0.001 || Math.abs(Number(direction.duration) - timed.duration) > 0.001) errors.push(`${label}: timing metadata was modified.`);
     const generationDuration = positiveSceneDuration(direction.generation_duration_seconds);
@@ -105,7 +106,7 @@ export function validateSceneDirections(directions: unknown, timedScenes: TimedS
     }
     if (plannedScenes) ['opening_state','primary_motion','physical_interaction','mid_shot_progression','ending_state'].forEach(field => { if (!String(direction.temporal_action?.[field] || '').trim()) errors.push(`${label}: temporal_action.${field} is required.`); });
   });
-  timedScenes.forEach(scene => { if (!seen.has(scene.number)) errors.push(`Scene ${scene.number} is missing.`); });
+  if(!options.allowPartial)timedScenes.forEach(scene => { if (!seen.has(scene.number)) errors.push(`Scene ${scene.number} is missing.`); });
   return [...new Set(errors)];
 }
 

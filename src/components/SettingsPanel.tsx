@@ -35,6 +35,7 @@ import {
 import { DEFAULT_PRODUCTION_TEMPLATE } from '../lib/productionTemplate';
 import { HandoffValidationResult, validateVisualProductionHandoff } from '../lib/handoffValidation';
 import { positiveSceneDuration } from '../lib/sceneDuration';
+import { createResumableProductionSession } from '../lib/productionSession';
 
 interface SettingsPanelProps {
   state: AppState;
@@ -108,7 +109,12 @@ export function SettingsPanel({ state, setState, open, onOpenChange }: SettingsP
               <Label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
                 DEFAULT MODEL PIPELINE
               </Label>
-              <Select value={settings.model} onValueChange={(val) => setSettings(s => ({...s, model: val}))}>
+              <Select disabled={state.generationSession.status==='running'} value={settings.model} onValueChange={(val) => {
+                if(val===settings.model)return;
+                setSettings(s => ({...s, model: val}));
+                if(state.visualPrompts.length)setState(previous=>({...previous,phase:2,visualPrompts:[],demoState:'idle',demoScenes:[],demoSceneNumbers:[],generationSession:createResumableProductionSession(previous.voiceoverTranscription?.scenes||[],previous.plannedScenes,previous.sceneDirections,[])}));
+                if(state.visualPrompts.length)toast.info('Prompt outputs were invalidated because the Gemini model changed. Directions were preserved.');
+              }}>
                 <SelectTrigger className="bg-muted/20 border border-border/40 h-9 font-mono text-xs focus:ring-primary/40">
                   <SelectValue />
                 </SelectTrigger>
@@ -146,7 +152,7 @@ export function SettingsPanel({ state, setState, open, onOpenChange }: SettingsP
 
             <div className="p-3.5 content-panel">
               <p className="text-[10px] text-muted-foreground leading-relaxed uppercase">
-                Base clips follow the global {settings.sceneDurationSeconds}-second timing. Full Phase 3 generation runs automatically in fixed sequential batches of 30 scenes.
+                Base clips follow the global {settings.sceneDurationSeconds}-second timing. Production runs automatically in semantic batches targeting 8 scenes, normally 6–10 at natural boundaries.
               </p>
             </div>
           </div>

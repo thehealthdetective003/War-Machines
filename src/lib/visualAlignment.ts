@@ -60,8 +60,9 @@ export function buildAlignmentRequests(topic:TopicBrief,scenes:TimedScene[],base
   const handoff:any=topic._production_handoff;
   const chapters=handoff?.visual_story_plan?.chapters||[];
   const allowed=chapters.flatMap((chapter:any)=>(chapter.visual_beats||[]).map((beat:V2VisualBeat)=>({chapter_id:chapter.chapter_id,beat}))).filter((item:any)=>item.beat.generation_permission==='T2V_ALLOWED'&&item.beat.preferred_media_routes?.includes('GENERATED_T2V'));
+  const baseByNumber=new Map(basePlan.map(item=>[item.number,item]));
   return buildNarrativeGroups(scenes).map(group=>{
-    const chapterIds=new Set(group.scene_numbers.map(number=>basePlan[number-1]?.chapter_id).filter(Boolean));
+    const chapterIds=new Set(group.scene_numbers.map(number=>baseByNumber.get(number)?.chapter_id).filter(Boolean));
     const groupTokens=tokens(`${group.voiceover} ${group.previous_context} ${group.next_context}`);
     const ranked=allowed.map((item:any)=>({item,score:overlap(groupTokens,tokens(`${item.beat.beat_name} ${item.beat.narrative_purpose} ${(item.beat.semantic_alignment_terms||[]).join(' ')}`))*10+(chapterIds.has(item.chapter_id)?3:0)})).sort((a:any,b:any)=>b.score-a.score||a.item.beat.beat_order-b.item.beat.beat_order).slice(0,8);
     return {...group,candidates:ranked.map(({item}:any)=>({beat_id:item.beat.beat_id,beat_name:item.beat.beat_name,narrative_purpose:item.beat.narrative_purpose,story_function:item.beat.story_function,visual_family:item.beat.visual_family,semantic_alignment_terms:item.beat.semantic_alignment_terms,stage_ids:item.beat.applicable_stage_ids,environment_ids:item.beat.environment_ids,product_visibility:item.beat.product_visibility,must_show:item.beat.must_show,must_not_show:[...item.beat.must_not_show,...item.beat.negative_constraints]}))};
@@ -111,6 +112,7 @@ const routeFallback=(handoff:any,request:AlignmentRequestGroup,selection:VisualA
 
 export function applyVisualAlignments(topic:TopicBrief,scenes:TimedScene[],basePlan:PlannedScene[],requests:AlignmentRequestGroup[],selections:VisualAlignmentSelection[],onBalanceDiagnostics?:(diagnostics:VisualBalanceDiagnostics)=>void):PlannedScene[]{
   const handoff:any=topic._production_handoff;const beats=new Map<string,V2VisualBeat>((handoff?.visual_story_plan?.chapters||[]).flatMap((chapter:any)=>chapter.visual_beats||[]).map((beat:V2VisualBeat)=>[beat.beat_id,beat]));
+  const sceneByNumber=new Map(scenes.map(scene=>[scene.number,scene]));
   const selectionByScene=new Map<number,{selection:VisualAlignmentSelection;request:AlignmentRequestGroup;graphicSceneNumbers:Set<number>}>();requests.forEach(request=>{
     const selection=selections.find(item=>item.group_id===request.group_id)!;
     const candidate=selection.source==='ENGINE_BEAT'?request.candidates.find(item=>item.beat_id===selection.beat_id):undefined;
@@ -119,7 +121,7 @@ export function applyVisualAlignments(topic:TopicBrief,scenes:TimedScene[],baseP
     if(targetsGraphic&&selection.graphic_required){
       const requested=(selection.graphic_scene_numbers||[]).filter(number=>request.scene_numbers.includes(number));
       const pool=requested.length?requested:request.scene_numbers;
-      selected=[...pool].sort((a,b)=>graphicNeedScoreForScene(scenes[a-1],selection)-graphicNeedScoreForScene(scenes[b-1],selection)).slice(-1);
+      selected=[...pool].sort((a,b)=>graphicNeedScoreForScene(sceneByNumber.get(a),selection)-graphicNeedScoreForScene(sceneByNumber.get(b),selection)).slice(-1);
     }
     const graphicSceneNumbers=new Set(selected);request.scene_numbers.forEach(number=>selectionByScene.set(number,{selection,request,graphicSceneNumbers}));
   });

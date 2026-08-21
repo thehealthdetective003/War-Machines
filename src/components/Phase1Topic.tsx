@@ -20,6 +20,10 @@ import { DEFAULT_PRODUCTION_TEMPLATE, isProductionHandoff, normalizeProductionHa
 import { HandoffValidationResult, validateVisualProductionHandoff } from '../lib/handoffValidation';
 import { v2HandoffSceneDuration } from '../lib/sceneDuration';
 import { idleGenerationSession } from '../lib/generationSession';
+import { TranscriptionImportPanel } from './TranscriptionImportPanel';
+import { validateProductionReadiness } from '../lib/setupValidation';
+import { buildDocumentaryScenePlan } from '../lib/scenePlanner';
+import { createProductionSession } from '../lib/productionSession';
 interface Phase1TopicProps {
   state: AppState;
   setState: React.Dispatch<React.SetStateAction<AppState>>;
@@ -36,6 +40,7 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
   const [isValid, setIsValid] = useState(false);
   const [parsedBrief, setParsedBrief] = useState<TopicBrief | null>(null);
   const [validationResult, setValidationResult] = useState<HandoffValidationResult | null>(null);
+  const readiness=validateProductionReadiness(state);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -147,12 +152,18 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
     setState((prev) => ({
       ...prev,
       topic: parsedBrief,
-      masterVoiceoverScript: parsedBrief.master_voiceover_script || '',
+      masterVoiceoverScript: prev.voiceoverTranscription?.text || parsedBrief.master_voiceover_script || '',
       projectName: parsedBrief.topic?.product || parsedBrief.topic?.title || "Untitled",
       plannedScenes: [], sceneDirections: [], visualPrompts: [], demoScenes: [], demoSceneNumbers: [], demoState: 'idle',
       generationSession: idleGenerationSession(),
-      phase: 2,
+      phase: 1,
     }));
+  };
+  const startProduction=()=>{
+    const current=validateProductionReadiness(state);if(!current.ready)return toast.error(current.errors[0]);
+    if(!(settings.apiKey||process.env.GEMINI_API_KEY))return toast.error('Add a Gemini API key in Settings before starting production.');
+    const scenes=state.voiceoverTranscription!.scenes,previewPlan=buildDocumentaryScenePlan(state.topic!,scenes),generationSession=createProductionSession(scenes,previewPlan);
+    setState(previous=>({...previous,phase:2,plannedScenes:[],sceneDirections:[],visualPrompts:[],demoState:'idle',demoScenes:[],demoSceneNumbers:[],generationSession:{...generationSession,status:'running',startedAt:new Date().toISOString()}}));
   };
   return (
     <div className="phase-canvas flex flex-col h-full w-full space-y-6 pb-8">
@@ -343,7 +354,7 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
                 onClick={handleLockTopic}
                 className="w-full h-14 font-bold xl:text-lg tracking-widest shadow-xl shadow-primary/20"
               >
-                LOCK BRIEF → PHASE 2
+                LOAD HANDOFF INTO SETUP
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
               <div className="absolute -top-5 inset-x-0 text-center text-[10px] text-muted-foreground/60 hidden md:block">
@@ -353,6 +364,15 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
           </motion.div>
         )}
       </AnimatePresence>
+      {state.topic&&<div className="space-y-4">
+        <TranscriptionImportPanel state={state} setState={setState}/>
+        <div className="content-panel p-5 space-y-3">
+          <div className="eyebrow">Setup compatibility</div>
+          {readiness.errors.length?readiness.errors.map(item=><div key={item} className="text-xs text-amber-500">• {item}</div>):<div className="text-xs text-emerald-500 flex items-center gap-2"><CheckCircle2 className="h-4 w-4"/>Handoff, transcription, scene duration, timeline, and downstream dependencies are compatible.</div>}
+          {readiness.warnings.map(item=><div key={item} className="text-xs text-muted-foreground">• {item}</div>)}
+          <Button className="w-full h-14 font-bold tracking-widest" disabled={!readiness.ready} onClick={startProduction}>START PRODUCTION<ArrowRight className="ml-2 h-5 w-5"/></Button>
+        </div>
+      </div>}
     </div>
   );
 }

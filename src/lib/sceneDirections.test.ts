@@ -26,6 +26,13 @@ test('rejects modified imported metadata', () => {
   assert.ok(validateSceneDirections(merged, timed).some(error => error.includes('modified')));
 });
 
+test('validates a later semantic batch by explicit scene number rather than array offset',()=>{
+  const laterTimed=[{number:61,start:360,end:366,duration:6,text:'Later scene.',silent:false}];
+  const laterGenerated=[{...generated[0],number:61}];
+  const merged=mergeDirectionMetadata(laterGenerated,laterTimed,[],6);
+  assert.deepEqual(validateSceneDirections(merged,laterTimed,undefined,6),[]);
+});
+
 test('attaches immutable stage and environment metadata locally from the scene plan', () => {
   const plan = [{ number:1, chapter_id:'CH01', beat_id:'B01', visual_family:'ASSEMBLY_PROCESS', story_function:'EXPLAIN_PROCESS', visual_treatment:'LIVE_ACTION_T2V', product_visibility:'PARTIAL', stage_id:'PLANNED_STAGE', environment_ref:'PLANNED_ENV', state:'B' }] as const;
   const responseWithoutPlanFields = [{ ...generated[0], stage_id:undefined, environment_ref:undefined, state:'INVALID', temporal_action:{opening_state:'Part rests in jig',primary_motion:'Tool lowers',physical_interaction:'Tool contacts part',mid_shot_progression:'Fastener seats',ending_state:'Tool lifts'} }];

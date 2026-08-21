@@ -312,6 +312,36 @@ export interface T2VPrompt {
   omniSections?: OmniPromptSections;
 }
 export type GenerationSessionStatus = 'idle' | 'running' | 'paused' | 'interrupted' | 'failed' | 'complete';
+export type ProductionOperation = 'QUEUED'|'PLANNING'|'PLANNED'|'ALIGNING'|'ALIGNED'|'DIRECTING'|'DIRECTION_CORRECTION'|'DIRECTED'|'GENERATING_PROMPTS'|'PROMPTS_GENERATED'|'PROMPT_CORRECTION'|'QA'|'COMPLETE';
+export type ProductionPauseReason = 'user'|'quota'|'rate_limit'|'storage'|'error'|null;
+export interface ProductionBatchState {
+  id:string;
+  index:number;
+  sceneNumbers:number[];
+  operation:ProductionOperation;
+  directionCompletedSceneNumbers:number[];
+  promptCompletedSceneNumbers:number[];
+  qaCompletedSceneNumbers:number[];
+  directionCorrectionCandidates:SceneDirection[];
+  promptCorrectionSceneNumbers:number[];
+  correctionReason:string|null;
+  lastCommittedAt:string|null;
+  error:string|null;
+}
+export interface ProductionContext {
+  lifecycleState:'A'|'B'|'C'|null;
+  recentVisualFamilies:VisualFamily[];
+  previousEnvironment:string|null;
+  previousCameraTreatment:string|null;
+  recentGraphicSceneNumbers:number[];
+  recentBeatIds:string[];
+  previousVisualClaim:string|null;
+  productConfiguration:string|null;
+  continuityRequirements:string[];
+  unresolvedBridge:string|null;
+  visualFamilyCounts:Record<string,number>;
+  completedSceneNumbers:number[];
+}
 export interface GenerationSession {
   status: GenerationSessionStatus;
   totalBatches: number;
@@ -322,6 +352,17 @@ export interface GenerationSession {
   startedAt: string | null;
   lastCommittedAt: string | null;
   error: string | null;
+  operation: ProductionOperation;
+  activeBatchId: string | null;
+  batches: ProductionBatchState[];
+  completedSceneNumbers: number[];
+  pendingSceneNumbers: number[];
+  directionCompletedSceneNumbers: number[];
+  promptCompletedSceneNumbers: number[];
+  qaCompletedSceneNumbers: number[];
+  correctionPendingSceneNumbers: number[];
+  pauseReason: ProductionPauseReason;
+  context: ProductionContext;
 }
 export interface AppState {
   projectSchemaVersion: number;

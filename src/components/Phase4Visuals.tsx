@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect, useRef, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { AlertCircle, ArrowLeft, ChevronLeft, ChevronRight, Copy, Download, Loader2, Play, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -16,15 +16,13 @@ import { createDirectionBatches, missingDirections, PromptBatchError, runSequent
 import { compileOmniPrompt, normalizeOmniSections, recompileOmniPrompts } from '../lib/omniPromptCompiler';
 import { clampPromptPage, PROMPT_PAGE_SIZE, promptPageCount, promptPageItems } from '../lib/pagination';
 import { Input } from '@/components/ui/input';
-import { idleGenerationSession } from '../lib/generationSession';
 import { isAdvisoryPromptQualityIssue, promptQualityIssues } from '../lib/promptQuality';
+import { createResumableProductionSession } from '../lib/productionSession';
 
 interface Props {
   state: AppState;
   setState: Dispatch<SetStateAction<AppState>>;
   commitProjectState: (state: AppState, checkpointReason?: ProjectCheckpointReason) => Promise<AppState>;
-  resumeAfterRecovery: boolean;
-  onResumeAfterRecoveryConsumed: () => void;
 }
 const responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, required: ['number','action_description','video_prompt','stock_keywords'], properties: {
   number: { type: Type.INTEGER }, action_description: { type: Type.STRING }, video_prompt: { type: Type.STRING }, stock_keywords: { type: Type.STRING },
@@ -40,13 +38,12 @@ const omniResponseSchema = { type:Type.ARRAY, items:{type:Type.OBJECT,required:[
 const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 const download = (name: string, text: string, type: string) => { const url=URL.createObjectURL(new Blob([text],{type})); const a=document.createElement('a'); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url); };
 
-export function Phase4Visuals({ state, setState, commitProjectState, resumeAfterRecovery, onResumeAfterRecoveryConsumed }: Props) {
+export function Phase4Visuals({ state, setState, commitProjectState }: Props) {
   const { settings } = useSettings();
   const [loading, setLoading] = useState<'demo'|'full'|null>(null);
   const [batchProgress, setBatchProgress] = useState<{ batch:number; total:number; start:number; end:number; completed:number; error?:string } | null>(null);
   const [promptPage, setPromptPage] = useState(1);
   const [sceneJump, setSceneJump] = useState('');
-  const autoResumeHandledRef = useRef(false);
   const directions = state.sceneDirections;
 
   const requestPrompts = async (ai: GoogleGenAI, selected: typeof directions, qualityRetry?:string): Promise<T2VPrompt[]> => {
@@ -98,6 +95,7 @@ export function Phase4Visuals({ state, setState, commitProjectState, resumeAfter
           demoSceneNumbers: [],
           demoState: 'idle',
           generationSession: {
+            ...state.generationSession,
             status: 'running',
             totalBatches: totalProjectBatches,
             currentBatch: state.generationSession.currentBatch,
@@ -162,12 +160,6 @@ export function Phase4Visuals({ state, setState, commitProjectState, resumeAfter
   const pageCount = promptPageCount(orderedShown.length);
   const pagePrompts = promptPageItems(orderedShown,promptPage);
   useEffect(()=>setPromptPage(page=>clampPromptPage(page,orderedShown.length)),[orderedShown.length]);
-  useEffect(()=>{
-    if(!resumeAfterRecovery||autoResumeHandledRef.current)return;
-    autoResumeHandledRef.current=true;
-    onResumeAfterRecoveryConsumed();
-    void generate(false,true);
-  },[resumeAfterRecovery]);
   const update = (number:number,field:'video_prompt'|'action_description'|'stock_keywords',value:string) => setState(p=>({ ...p, visualPrompts:p.visualPrompts.map(x=>x.number===number?{...x,[field]:value}:x), demoScenes:p.demoScenes.map(x=>x.number===number?{...x,[field]:value}:x) }));
   const profileLabel = state.t2vPromptProfile === 'omni-flash' ? 'Gemini Omni Flash' : 'Veo / Google Flow';
   const allText = orderedShown.map(prompt=>`${prompt.number}: ${prompt.video_prompt}`).join('\n\n');
@@ -186,24 +178,15 @@ export function Phase4Visuals({ state, setState, commitProjectState, resumeAfter
   };
 
   return <div className="phase-canvas space-y-6">
-    <Button variant="link" className="p-0 text-muted-foreground" onClick={()=>setState(s=>({...s,phase:2}))}><ArrowLeft className="h-3 w-3 mr-1"/>Review Directions</Button>
-    <div className="section-intro section-intro--amber"><div className="eyebrow text-amber-600 dark:text-amber-400">Prompt studio</div><h2 className="text-xl font-bold mt-1">Generate, refine, and export</h2><p className="text-sm text-muted-foreground mt-1">Direct timestamped video prompts with the exact imported VO attached locally.</p></div>
+    <Button variant="link" className="p-0 text-muted-foreground" onClick={()=>setState(s=>({...s,phase:2}))}><ArrowLeft className="h-3 w-3 mr-1"/>Production status</Button>
+    <div className="section-intro section-intro--amber"><div className="eyebrow text-amber-600 dark:text-amber-400">Review & Export</div><h2 className="text-xl font-bold mt-1">Review completed production prompts</h2><p className="text-sm text-muted-foreground mt-1">Inspect, refine, copy, and export the durably completed timestamped prompt set.</p></div>
     <div className="content-panel content-panel--amber p-4 sm:p-5 space-y-3">
       <label className="eyebrow">Google Flow target profile</label>
-      <Select value={state.t2vPromptProfile} onValueChange={(value) => setState(previous => ({ ...previous, t2vPromptProfile:value as T2VPromptProfile, visualPrompts:[], demoScenes:[], demoSceneNumbers:[], demoState:'idle', generationSession:idleGenerationSession() }))}>
+      <Select value={state.t2vPromptProfile} onValueChange={(value) => setState(previous => ({ ...previous, phase:2,t2vPromptProfile:value as T2VPromptProfile, visualPrompts:[], demoScenes:[], demoSceneNumbers:[], demoState:'idle', generationSession:createResumableProductionSession(previous.voiceoverTranscription?.scenes||[],previous.plannedScenes,previous.sceneDirections,[]) }))}>
         <SelectTrigger className="max-w-md"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="omni-flash">Gemini Omni Flash</SelectItem><SelectItem value="veo-flow">Veo / Google Flow</SelectItem></SelectContent>
       </Select>
-      <p className="text-[10px] text-muted-foreground">Changing profile clears only generated Phase 3 output. Select the matching {directions[0]?.generation_duration_seconds ?? directions[0]?.duration ?? 6}s generation length in Flow; available lengths depend on the active Flow model.</p>
+      <p className="text-[10px] text-muted-foreground">Changing profile invalidates only generated prompts and returns the project to Production. Select the matching {directions[0]?.generation_duration_seconds ?? directions[0]?.duration ?? 6}s generation length in Flow; available lengths depend on the active Flow model.</p>
     </div>
-    {!state.visualPrompts.length && !batchProgress?.error && <div className="grid md:grid-cols-2 gap-3"><Button variant="outline" className="h-12" disabled={!!loading} onClick={()=>generate(true)}>{loading==='demo'?<Loader2 className="animate-spin mr-2"/>:<Play className="h-4 w-4 mr-2"/>}GENERATE 3-SCENE DEMO</Button><Button className="h-12 font-bold shadow-lg shadow-primary/20" disabled={!!loading} onClick={()=>generate(false,false)}>{loading==='full'&&<Loader2 className="animate-spin mr-2"/>}GENERATE ALL · BATCHES OF 30</Button></div>}
-    {state.demoScenes.length>0&&!state.visualPrompts.length&&!batchProgress?.error&&<Button className="w-full" disabled={!!loading} onClick={()=>generate(false,false)}>DEMO APPROVED — GENERATE FULL SET IN BATCHES</Button>}
-    {canResume && !loading && <div className="grid md:grid-cols-2 gap-3"><Button className="h-12 font-bold" onClick={()=>generate(false,true)}><RefreshCw className="h-4 w-4 mr-2"/>RESUME FROM SCENE {missingDirections(directions,state.visualPrompts)[0]?.number}</Button><Button variant="outline" className="h-12" onClick={()=>generate(false,false)}>RESTART FULL GENERATION</Button></div>}
-    {batchProgress && <div className={`rounded-2xl border p-5 space-y-3 ${batchProgress.error?'border-red-500/40 bg-red-500/5':'border-primary/30 bg-primary/5'}`}>
-      <div className="flex flex-wrap justify-between gap-2 text-xs"><span className="font-bold">{batchProgress.error?'GENERATION PAUSED':isComplete?'GENERATION COMPLETE':`BATCH ${batchProgress.batch} OF ${batchProgress.total}`}</span><span>{batchProgress.completed} / {directions.length} scenes completed</span></div>
-      <Progress value={directions.length ? (batchProgress.completed/directions.length)*100 : 0}/>
-      <div className="text-[10px] text-muted-foreground">Scenes {batchProgress.start}–{batchProgress.end} · fixed {T2V_BATCH_SIZE}-scene sequential batches</div>
-      {batchProgress.error&&<div className="flex gap-2 text-xs text-red-400"><AlertCircle className="h-4 w-4 shrink-0"/>{batchProgress.error}</div>}
-    </div>}
     {isComplete && !batchProgress && <Badge className="bg-green-600/20 text-green-500 border-green-500/30">GENERATION COMPLETE · {directions.length} SCENES</Badge>}
     {shown.length>0 && <div className="content-panel flex flex-wrap gap-2 p-3"><Button variant="outline" onClick={async()=>toast[await copyToClipboard(allText)?'success':'error'](`Copied ${shown.length} prompt${shown.length===1?'':'s'} in scene order.`)}><Copy className="h-4 w-4 mr-2"/>COPY ALL PROMPTS</Button>{state.t2vPromptProfile==='omni-flash'&&<Button variant="outline" onClick={recompileAll}><RefreshCw className="h-4 w-4 mr-2"/>RECOMPILE ALL PROMPTS</Button>}{isComplete&&<><Button variant="outline" onClick={exportCsv}><Download className="h-4 w-4 mr-2"/>CSV</Button><Button variant="outline" onClick={exportVo}><Download className="h-4 w-4 mr-2"/>TIMESTAMPED VO</Button></>}</div>}
     {shown.length>0 && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-muted/30 p-3">

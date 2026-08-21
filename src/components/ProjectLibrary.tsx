@@ -93,11 +93,11 @@ export function ProjectLibrary({
 
   const getPhaseInfo = (phase: PhaseType, demoOnly: boolean) => {
     switch (phase) {
-      case 1: return { label: 'BRIEF', color: 'bg-slate-500/10 text-slate-500 border-slate-500/20', icon: <FileText className="h-3 w-3 mr-1" /> };
-      case 2: return { label: 'VO & DIRECTION', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', icon: <Code className="h-3 w-3 mr-1" /> };
+      case 1: return { label: 'SETUP', color: 'bg-slate-500/10 text-slate-500 border-slate-500/20', icon: <FileText className="h-3 w-3 mr-1" /> };
+      case 2: return { label: 'PRODUCTION', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', icon: <Code className="h-3 w-3 mr-1" /> };
       case 3:
         if (demoOnly) return { label: 'T2V DEMO', color: 'border-amber-500/50 text-amber-500 bg-transparent', icon: <Play className="h-3 w-3 mr-1" /> };
-        return { label: 'T2V PROMPTS', color: 'bg-amber-500/10 text-amber-500 border-amber-500/20 font-bold', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
+        return { label: 'REVIEW & EXPORT', color: 'bg-amber-500/10 text-amber-500 border-amber-500/20 font-bold', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
       default: return { label: 'UNKNOWN', color: 'bg-slate-500/10 text-slate-500', icon: null };
     }
   };

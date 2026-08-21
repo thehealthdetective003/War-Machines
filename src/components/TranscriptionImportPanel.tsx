@@ -2,10 +2,10 @@ import { Dispatch, SetStateAction, useRef } from 'react';
 import { CheckCircle2, FileJson } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppState } from '../types';
-import { idleGenerationSession } from '../lib/generationSession';
 import { useSettings } from './SettingsContext';
-import { formatTimestamp, resetDownstreamForTiming } from '../lib/timedTranscript';
+import { formatTimestamp } from '../lib/timedTranscript';
 import { importTranscriptionJson } from '../lib/transcriptionImport';
+import { createResumableProductionSession, firstChangedTranscriptionScene, invalidateFromScene, synchronizeProductionSession } from '../lib/productionSession';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,7 +18,7 @@ export function TranscriptionImportPanel({ state, setState }: Props) {
   const importFile = async (file: File) => {
     try {
       const imported = importTranscriptionJson(JSON.parse(await file.text()), file.name, settings.sceneDurationSeconds);
-      setState(prev => ({ ...resetDownstreamForTiming(prev), masterVoiceoverScript: imported.text, voiceoverTranscription: imported } as AppState));
+      setState(prev => {const changed=firstChangedTranscriptionScene(prev.voiceoverTranscription?.scenes||[],imported.scenes)||1,invalidated=invalidateFromScene(prev,changed),draft={...invalidated,phase:1 as const,masterVoiceoverScript:imported.text,voiceoverTranscription:imported},session=createResumableProductionSession(imported.scenes,draft.plannedScenes,draft.sceneDirections,draft.visualPrompts);return {...draft,generationSession:synchronizeProductionSession(session,draft)} as AppState;});
       toast.success(`Imported ${imported.words.length} timed words into ${imported.scenes.length} scenes.`);
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not import transcription JSON.'); }
     finally { if (inputRef.current) inputRef.current.value = ''; }
@@ -27,7 +27,7 @@ export function TranscriptionImportPanel({ state, setState }: Props) {
     if (!prev.voiceoverTranscription) return prev;
     const scenes = prev.voiceoverTranscription.scenes.map(scene => scene.number === number ? { ...scene, text, silent: !text.trim() } : scene);
     const masterVoiceoverScript = scenes.map(scene => scene.text).filter(Boolean).join(' ');
-    return { ...prev, phase: 2, masterVoiceoverScript, voiceoverTranscription: { ...prev.voiceoverTranscription, scenes, text: masterVoiceoverScript }, plannedScenes: [], sceneDirections: [], visualPrompts: [], demoScenes: [], demoSceneNumbers: [], demoState: 'idle', generationSession: idleGenerationSession() };
+    const invalidated=invalidateFromScene(prev,number);return { ...invalidated, phase: 1, masterVoiceoverScript, voiceoverTranscription: { ...prev.voiceoverTranscription, scenes, text: masterVoiceoverScript } };
   });
   return <div className="content-panel content-panel--cyan mb-8 p-5 sm:p-6 space-y-4">
     <div><h3 className="font-bold tracking-wide text-base flex items-center gap-2"><span className="section-icon section-icon--cyan"><FileJson className="h-4 w-4"/></span>Timestamped transcription</h3><p className="text-[11px] text-muted-foreground mt-2">Required · English · word-level timestamps · automatically split into {settings.sceneDurationSeconds}s scenes</p></div>

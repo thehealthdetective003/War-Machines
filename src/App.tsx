@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from 'next-themes';
 import { motion, AnimatePresence } from 'motion/react';
-import { Moon, Sun, CheckCircle2, FilePlus, FolderOpen, AlertCircle, FileUp, FileDown, Wrench, Boxes, AudioLines, WandSparkles, CircleDot, Layers3 } from 'lucide-react';
+import { Moon, Sun, CheckCircle2, FilePlus, FolderOpen, AlertCircle, FileUp, FileDown, Wrench, Boxes, Factory, ClipboardCheck, CircleDot, Layers3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,20 +18,21 @@ import { AppState, PhaseType, ProjectCheckpoint, ProjectCheckpointReason } from 
 import { SettingsPanel } from './components/SettingsPanel';
 import { useSettings } from './components/SettingsContext';
 import { ProjectLibrary } from './components/ProjectLibrary';
-import { clearActiveProjectId, exportActiveProject, getActiveProjectId, getProjectCheckpoints, initializeProjectStorage, loadProject, recordDiagnostic, restoreCheckpoint, saveProject } from './lib/storageUtils';
+import { clearActiveProjectId, getActiveProjectId, getProjectCheckpoints, initializeProjectStorage, loadProject, recordDiagnostic, restoreCheckpoint, saveProject } from './lib/storageUtils';
 import { toast } from 'sonner';
 import { resplitTranscription, resetDownstreamForTiming } from './lib/timedTranscript';
 import { migrateProject, projectSceneDuration } from './lib/projectMigration';
 import { idleGenerationSession } from './lib/generationSession';
+import { validateProductionReadiness } from './lib/setupValidation';
 
 const Phase1Topic = lazy(() => import('./components/Phase1Topic').then(module => ({ default: module.Phase1Topic })));
-const Phase2Script = lazy(() => import('./components/Phase2Script').then(module => ({ default: module.Phase2Script })));
+const ProductionPipeline = lazy(() => import('./components/ProductionPipeline').then(module => ({ default: module.ProductionPipeline })));
 const Phase4Visuals = lazy(() => import('./components/Phase4Visuals').then(module => ({ default: module.Phase4Visuals })));
 
 const PHASES = [
-  { id: 1, label: 'Topic Brief', eyebrow: 'Foundation', description: 'Define the manufacturing subject', icon: Boxes, tone: 'violet' },
-  { id: 2, label: 'Voice & Direction', eyebrow: 'Production', description: 'Synchronize narration and scenes', icon: AudioLines, tone: 'cyan' },
-  { id: 3, label: 'T2V Prompts', eyebrow: 'Generation', description: 'Create production-ready prompts', icon: WandSparkles, tone: 'amber' },
+  { id: 1, label: 'Setup', eyebrow: 'Inputs', description: 'Validate the handoff and transcription', icon: Boxes, tone: 'violet' },
+  { id: 2, label: 'Production', eyebrow: 'Automatic pipeline', description: 'Plan, direct, generate, validate, and save', icon: Factory, tone: 'cyan' },
+  { id: 3, label: 'Review & Export', eyebrow: 'Delivery', description: 'Review completed prompts and export', icon: ClipboardCheck, tone: 'amber' },
 ];
 
 function WorkspaceLoader({ label = 'Preparing your project workspace' }: { label?: string }) {
@@ -48,7 +49,7 @@ function WorkspaceLoader({ label = 'Preparing your project workspace' }: { label
   );
 }
 export const INITIAL_STATE: AppState = {
-  projectSchemaVersion: 12,
+  projectSchemaVersion: 13,
   id: undefined,
   projectName: 'Untitled Manufacturing Sequence',
   projectFormat: 'standard-lifecycle',
@@ -66,6 +67,10 @@ export const INITIAL_STATE: AppState = {
   generationSession: idleGenerationSession(),
 };
 
+const interruptRunningProduction=(project:AppState)=>project.generationSession.status==='running'
+  ? {...project,generationSession:{...project.generationSession,status:'interrupted' as const,error:`Production was interrupted during ${project.generationSession.operation.replaceAll('_',' ')}. The previous durable operation is preserved.`}}
+  : project;
+
 export default function App() {
   const { theme, setTheme } = useTheme();
   const { settings, setSettings, isLoaded } = useSettings();
@@ -80,7 +85,6 @@ export default function App() {
   const [showSavedFlash, setShowSavedFlash] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [recovery, setRecovery] = useState<{project:AppState;checkpoints:ProjectCheckpoint[]}|null>(null);
-  const [resumeAfterRecovery, setResumeAfterRecovery] = useState(false);
   
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const activePhase = PHASES.find((p) => p.id === state.phase);
@@ -137,9 +141,9 @@ export default function App() {
           const duration=projectSceneDuration(raw,settings.sceneDurationSeconds);
           const migration=migrateProject(raw,INITIAL_STATE,duration);
           if(migration.state){
-            const migrated=migration.message?await persistSnapshot(migration.state):migration.state;
-            const interrupted=migrated.generationSession.status==='running';
-            const hydrated=interrupted?{...migrated,generationSession:{...migrated.generationSession,status:'interrupted' as const,error:'Generation was interrupted before the current batch committed.'}}:migrated;
+            const interrupted=migration.state.generationSession.status==='running';
+            const prepared=interruptRunningProduction(migration.state);
+            const hydrated=(migration.message||interrupted)?await persistSnapshot(prepared):prepared;
             savedStateRef.current=hydrated;currentStateRef.current=hydrated;setState(hydrated);
             setSettings(previous=>({...previous,sceneDurationSeconds:duration}));
             if(interrupted)setRecovery({project:hydrated,checkpoints:await getProjectCheckpoints(hydrated.id!)});
@@ -223,12 +227,14 @@ export default function App() {
         toast.error('This project uses an unsupported production format. Only Standard Lifecycle projects can be loaded.');
         return;
       }
-      const merged = migration.message ? await persistSnapshot(migration.state) : migration.state;
+      const wasRunning=migration.state.generationSession.status==='running',prepared=interruptRunningProduction(migration.state);
+      const merged = (migration.message||wasRunning) ? await persistSnapshot(prepared) : prepared;
       savedStateRef.current = merged;
       currentStateRef.current = merged;
       setState(merged);
       setSettings(previous => ({ ...previous, sceneDurationSeconds: duration }));
       setSaveMarker(value => value + 1);
+      if(wasRunning)setRecovery({project:merged,checkpoints:merged.id?await getProjectCheckpoints(merged.id):[]});
       toast.success(`Loaded: ${merged.topic?.topic?.title || merged.projectName}`);
       if (migration.message) toast.info(migration.message);
       setIsLibraryOpen(false);
@@ -262,8 +268,8 @@ export default function App() {
   }, []);
   const isPhaseComplete = (phaseId: number) => {
     switch (phaseId) {
-      case 1: return state.topic !== null;
-      case 2: return state.sceneDirections.length > 0 && state.sceneDirections.length === state.voiceoverTranscription?.scenes.length;
+      case 1: return validateProductionReadiness(state).ready;
+      case 2: return state.generationSession.status==='complete'&&state.visualPrompts.length>0&&state.visualPrompts.length===state.voiceoverTranscription?.scenes.length;
       case 3: return state.visualPrompts.length > 0 && state.visualPrompts.length === state.sceneDirections.length;
       default: return false;
     }
@@ -326,19 +332,19 @@ export default function App() {
           <DialogHeader>
             <DialogTitle>Recover interrupted generation</DialogTitle>
             <DialogDescription>
-              Batch {recovery?.project.generationSession.currentBatch ?? 0} is the last durable batch and contains {recovery?.project.generationSession.completedScenes ?? 0} of {recovery?.project.sceneDirections.length ?? 0} scenes
+              Batch {recovery?.project.generationSession.currentBatch ?? 0} stopped at {recovery?.project.generationSession.operation?.replaceAll('_',' ') || 'an unfinished operation'} with {recovery?.project.generationSession.completedScenes ?? 0} prompts durably complete
               {recovery?.project.generationSession.lastCommittedAt ? ` and was saved ${new Date(recovery.project.generationSession.lastCommittedAt).toLocaleString()}` : ''}.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <Button className="w-full" onClick={() => {
               if (!recovery) return;
-              const resumed = { ...recovery.project, phase: 3 as PhaseType, generationSession: { ...recovery.project.generationSession, status: 'paused' as const, error: null } };
-              setState(resumed); currentStateRef.current = resumed; setRecovery(null); setResumeAfterRecovery(true);
-            }}>RESUME MISSING SCENES</Button>
+              const resumed = { ...recovery.project, phase: 2 as PhaseType, generationSession: { ...recovery.project.generationSession, status: 'running' as const, pauseReason:null, error: null } };
+              setState(resumed); currentStateRef.current = resumed; setRecovery(null);
+            }}>RESUME EXACT OPERATION</Button>
             <Button variant="outline" className="w-full" onClick={() => {
               if (!recovery) return;
-              const opened = { ...recovery.project, phase: 3 as PhaseType, generationSession: { ...recovery.project.generationSession, status: 'paused' as const } };
+              const opened = { ...recovery.project, phase: 2 as PhaseType, generationSession: { ...recovery.project.generationSession, status: 'paused' as const } };
               setState(opened); currentStateRef.current = opened; setRecovery(null);
             }}>OPEN WITHOUT RESUMING</Button>
             {recovery?.checkpoints.map((checkpoint, index) => (
@@ -365,7 +371,7 @@ export default function App() {
             <span>PROJECT STORAGE PAUSED: {storageError}</span>
           </div>
           <Button variant="outline" size="sm" className="bg-white/10 border-white/20 hover:bg-white/20 text-white h-7 px-3 text-xs" onClick={() => void persistSnapshot(currentStateRef.current).catch(() => undefined)}>RETRY</Button>
-          <Button variant="outline" size="sm" className="bg-white/10 border-white/20 hover:bg-white/20 text-white h-7 px-3 text-xs" onClick={() => void exportActiveProject().catch(() => downloadState(currentStateRef.current))}>EXPORT JSON</Button>
+          <Button variant="outline" size="sm" className="bg-white/10 border-white/20 hover:bg-white/20 text-white h-7 px-3 text-xs" onClick={() => downloadState(currentStateRef.current)}>EXPORT IN-MEMORY JSON</Button>
           <Button 
             variant="outline" 
             size="sm" 
@@ -450,9 +456,10 @@ export default function App() {
                             toast.error('Unsupported production format. Only Standard Lifecycle projects can be loaded.');
                             return;
                           }
-                          const persisted = await persistSnapshot(merged);
+                          const wasRunning=merged.generationSession.status==='running',persisted = await persistSnapshot(interruptRunningProduction(merged));
                           currentStateRef.current = persisted;
                           setState(persisted);
+                          if(wasRunning)setRecovery({project:persisted,checkpoints:persisted.id?await getProjectCheckpoints(persisted.id):[]});
                           setSettings(previous => ({ ...previous, sceneDurationSeconds: duration }));
                           toast.success("Project file loaded and synchronized.");
                           if (migration.message) toast.info(migration.message);
@@ -532,8 +539,9 @@ export default function App() {
                   const PhaseIcon = phase.icon;
                   const isActive = state.phase === phase.id;
                   const completed = isPhaseComplete(phase.id);
-                  const isAvailable = phase.id === 1 || (phase.id === 2 ? Boolean(state.topic) : isPhaseComplete(2));
-                  const unavailableReason = phase.id === 2 ? 'Import and validate a production brief first.' : 'Complete and approve scene directions first.';
+                  const productionRunning=state.phase===2&&state.generationSession.status==='running';
+                  const isAvailable = phase.id === 1 ? !productionRunning : phase.id === 2 ? validateProductionReadiness(state).ready&&(state.phase===2||state.generationSession.status!=='idle') : isPhaseComplete(2);
+                  const unavailableReason = phase.id === 2 ? 'Validate both Setup inputs first.' : 'Complete the automatic production pipeline first.';
                   return <button key={phase.id} data-tone={phase.tone} disabled={!isAvailable} aria-current={isActive ? 'step' : undefined} title={isAvailable ? phase.description : unavailableReason} onClick={() => setState(s => ({...s,phase:phase.id as PhaseType}))} className={`phase-nav-item ${isActive ? 'is-active' : ''}`}>
                     <span className="phase-nav-icon"><PhaseIcon className="h-[18px] w-[18px]" /></span>
                     <span className="min-w-0 flex-1 text-left"><span className="block text-[10px] uppercase tracking-[0.16em] text-muted-foreground">0{phase.id} · {phase.eyebrow}</span><span className="block font-semibold mt-0.5">{phase.label}</span><span className="block text-[11px] text-muted-foreground mt-1 truncate">{phase.description}</span></span>
@@ -545,7 +553,7 @@ export default function App() {
             <div className="hidden lg:block rounded-2xl border border-border/60 bg-card/60 p-4 shadow-sm">
               <div className="eyebrow">Project snapshot</div>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className="metric-tile"><span>Scenes</span><strong>{state.sceneDirections.length || '—'}</strong></div>
+                <div className="metric-tile"><span>Scenes</span><strong>{state.voiceoverTranscription?.scenes.length || '—'}</strong></div>
                 <div className="metric-tile"><span>Prompts</span><strong>{state.visualPrompts.length || '—'}</strong></div>
               </div>
               <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground"><span>Clip duration</span><span className="font-mono font-bold text-foreground">{settings.sceneDurationSeconds}s</span></div>
@@ -587,14 +595,12 @@ export default function App() {
                     {activePhase?.id === 1 ? (
                       <Phase1Topic state={state} setState={setState} />
                     ) : activePhase?.id === 2 ? (
-                      <Phase2Script state={state} setState={setState} commitProjectState={commitProjectState} />
+                      <ProductionPipeline state={state} setState={setState} commitProjectState={commitProjectState} />
                     ) : activePhase?.id === 3 ? (
                       <Phase4Visuals
                         state={state}
                         setState={setState}
                         commitProjectState={commitProjectState}
-                        resumeAfterRecovery={resumeAfterRecovery}
-                        onResumeAfterRecoveryConsumed={() => setResumeAfterRecovery(false)}
                       />
                     ) : null}
                   </Suspense>
