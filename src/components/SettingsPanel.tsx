@@ -112,9 +112,11 @@ export function SettingsPanel({ state, setState, open, onOpenChange }: SettingsP
               </Label>
               <Select disabled={state.generationSession.status==='running'} value={settings.model} onValueChange={(val) => {
                 if(val===settings.model)return;
+                const hasOutput=Boolean(state.plannedScenes.length||state.sceneDirections.length||state.visualPrompts.length);
+                if(hasOutput&&!window.confirm('Changing the production model invalidates model-dependent alignment, directions, and prompts. Setup inputs remain saved. Continue?'))return;
                 setSettings(s => ({...s, model: val}));
-                if(state.plannedScenes.length||state.sceneDirections.length||state.visualPrompts.length)setState(previous=>{const scenes=previous.voiceoverTranscription?.scenes||[],preview=previous.topic?buildDocumentaryScenePlan(previous.topic,scenes):[];return {...previous,phase:2,plannedScenes:[],sceneDirections:[],visualPrompts:[],demoState:'idle',demoScenes:[],demoSceneNumbers:[],generationSession:createProductionSession(scenes,preview)};});
-                if(state.plannedScenes.length||state.sceneDirections.length||state.visualPrompts.length)toast.info('Model-dependent alignment, directions, and prompts were invalidated. Setup inputs were preserved.');
+                if(hasOutput)setState(previous=>{const scenes=previous.voiceoverTranscription?.scenes||[],preview=previous.topic?buildDocumentaryScenePlan(previous.topic,scenes):[];return {...previous,phase:2,plannedScenes:[],sceneDirections:[],visualPrompts:[],generationSession:createProductionSession(scenes,preview)};});
+                if(hasOutput)toast.info('Model-dependent alignment, directions, and prompts were invalidated. Setup inputs were preserved.');
               }}>
                 <SelectTrigger className="bg-muted/20 border border-border/40 h-9 font-mono text-xs focus:ring-primary/40">
                   <SelectValue />
@@ -206,7 +208,7 @@ export function SettingsPanel({ state, setState, open, onOpenChange }: SettingsP
                 </div>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed normal-case">
-                Importing replaces the blank Standard Lifecycle template and its generated research prompt. Filled handoff files are converted into the app's stage, environment, geometry-lock, continuity, and negative-prompt fields when loaded in Phase 1.
+                Importing replaces the blank Standard Lifecycle template and its generated research prompt. Filled handoff files are converted into the app's stage, environment, geometry-lock, continuity, and negative-prompt fields when loaded in Setup.
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <Button variant="outline" size="sm" className="relative h-9 text-[10px] font-mono">

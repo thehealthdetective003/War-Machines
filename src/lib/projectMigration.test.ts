@@ -6,7 +6,7 @@ import template from '../schemas/Modus_Visual_Production_Handoff_V2_Template.jso
 import { normalizeProductionHandoff } from './productionTemplate';
 import { idleGenerationSession } from './generationSession';
 
-const initial = { projectSchemaVersion: 14, projectName: 'Untitled', projectFormat: 'standard-lifecycle', phase: 1, topic: null, plannedScenes:[], sceneDirections: [], masterVoiceoverScript: '', voiceoverTranscription: null, t2vPromptProfile:'omni-flash', visualPrompts: [], demoState: 'idle', demoScenes: [], demoSceneNumbers: [], generationSession:idleGenerationSession() } as AppState;
+const initial = { projectSchemaVersion: 15, projectName: 'Untitled', projectFormat: 'standard-lifecycle', phase: 1, topic: null, plannedScenes:[], sceneDirections: [], masterVoiceoverScript: '', voiceoverTranscription: null, visualPrompts: [], generationSession:idleGenerationSession() } as AppState;
 const plan={number:1,chapter_id:'CH01',beat_id:'B01',visual_family:'ASSEMBLY_PROCESS',story_function:'EXPLAIN_PROCESS',visual_treatment:'LIVE_ACTION_T2V',product_visibility:'PARTIAL',stage_id:'S01',environment_ref:'E01',state:'B',showdown_role:null,energy_level:'MEDIUM',camera_platform:null,graphic_spec:null,reference_asset_ids:[],required_visible_features:['steel'],forbidden_elements:['finished product'],continuity_requirements:[],alignment_source:'ENGINE_BEAT',alignment_confidence:.9,alignment_claim:'Show steel assembly'} as const;
 const temporal_action={opening_state:'The part rests in its jig',primary_motion:'A worker lowers the tool',physical_interaction:'The tool contacts the part',mid_shot_progression:'The fastener seats progressively',ending_state:'The tool lifts away from the secured part'};
 
@@ -26,7 +26,7 @@ test('round-trips a complete 8-second T2V project without changing its timeline'
   assert.equal(result.state?.phase, 3);
   assert.equal(result.state?.voiceoverTranscription?.sceneDurationSeconds, 8);
   assert.equal(result.state?.visualPrompts.length, 1);
-  assert.equal(result.state?.projectSchemaVersion, 14);
+  assert.equal(result.state?.projectSchemaVersion, 15);
   assert.equal('apiKey' in parsed, false);
 
   const partial = JSON.parse(JSON.stringify(raw));
@@ -41,7 +41,7 @@ test('round-trips a complete 8-second T2V project without changing its timeline'
 test('schema 11 projects preserve inputs but reset downstream output for automatic realignment',()=>{
   const scene={...plan,number:1,start:0,end:8,duration:8,generation_duration_seconds:8,voiceover:'Hello',silent:false,subject:'Steel',product_visual_state:'Raw',primary_action:'Moves',supporting_motion:'None',environment_description:'Factory',camera:{shot_scale:'wide',lens:'35mm',angle:'eye',movement:'track',movement_speed:'slow'},lighting_and_material:'Cool steel',continuity_from_previous:'Opening',transition_to_next:'Cut',required_visible_features:['steel'],forbidden_elements:['finished product'],temporal_action};
   const raw:any={...initial,projectSchemaVersion:11,phase:3,topic:{topic:{title:'X'}},voiceoverTranscription:{duration:8,sceneDurationSeconds:8,text:'Hello',words:[],scenes:[{number:1,start:0,end:8,duration:8,text:'Hello',silent:false}]},plannedScenes:[plan],sceneDirections:[scene],visualPrompts:[{number:1,video_prompt:'old',action_description:'old',voiceover:'Hello',stock_keywords:''}]};
-  const result=migrateProject(raw,initial,8);assert.equal(result.state?.projectSchemaVersion,14);assert.equal(result.state?.phase,2);assert.deepEqual(result.state?.plannedScenes,[]);assert.deepEqual(result.state?.sceneDirections,[]);assert.deepEqual(result.state?.visualPrompts,[]);assert.match(result.message||'',/realignment/i);
+  const result=migrateProject(raw,initial,8);assert.equal(result.state?.projectSchemaVersion,15);assert.equal(result.state?.phase,2);assert.deepEqual(result.state?.plannedScenes,[]);assert.deepEqual(result.state?.sceneDirections,[]);assert.deepEqual(result.state?.visualPrompts,[]);assert.match(result.message||'',/realignment/i);
 });
 
 test('preserves a valid Phase 2 direction prefix for cross-profile resume',()=>{
@@ -63,7 +63,13 @@ test('preserves a valid Phase 2 direction prefix for cross-profile resume',()=>{
 test('adopts schema 13 paid artifacts for cross-profile reuse without regeneration',()=>{
   const scene={...plan,start:0,end:8,duration:8,generation_duration_seconds:8,voiceover:'Hello',silent:false,subject:'Steel module',product_visual_state:'Incomplete State B',primary_action:'Tool seats the steel fastener',supporting_motion:'Fixture remains stable',environment_description:'Assembly bay',camera:{shot_scale:'MEDIUM',lens:'NORMAL',angle:'EYE_LEVEL',movement:'STATIC',movement_speed:'NONE'},lighting_and_material:'Neutral light',continuity_from_previous:'Opening',transition_to_next:'Hold',required_visible_features:['steel'],forbidden_elements:['finished product'],temporal_action};
   const raw:any={...initial,projectSchemaVersion:13,phase:3,topic:{topic:{title:'X'}},voiceoverTranscription:{duration:8,sceneDurationSeconds:8,text:'Hello',words:[],scenes:[{number:1,start:0,end:8,duration:8,text:'Hello',silent:false}]},plannedScenes:[plan],sceneDirections:[scene],visualPrompts:[{number:1,action_description:'Tool seats fastener',video_prompt:'8-second continuous shot. Steel module.',voiceover:'Hello',stock_keywords:'steel'}]};
-  const result=migrateProject(raw,initial,8);assert.equal(result.state?.projectSchemaVersion,14);assert.equal(result.state?.sceneDirections[0].operationFingerprint,'legacy-preserved-v13');assert.equal(result.state?.visualPrompts[0].operationFingerprint,'legacy-preserved-v13');assert.equal(result.state?.visualPrompts[0].generationSource,'LEGACY');assert.equal(result.state?.generationSession.status,'complete');
+  const result=migrateProject(raw,initial,8);assert.equal(result.state?.projectSchemaVersion,15);assert.equal(result.state?.sceneDirections[0].operationFingerprint,'legacy-preserved-v13');assert.equal(result.state?.visualPrompts[0].operationFingerprint,'legacy-preserved-v13');assert.equal(result.state?.visualPrompts[0].generationSource,'LEGACY');assert.equal(result.state?.generationSession.status,'complete');
+});
+
+test('imports a legacy VEO project without active profile state or repaying for compatible prompts',()=>{
+  const scene={...plan,start:0,end:8,duration:8,generation_duration_seconds:8,voiceover:'Hello',silent:false,subject:'Steel module',product_visual_state:'Incomplete State B',primary_action:'Tool seats the steel fastener',supporting_motion:'Fixture remains stable',environment_description:'Assembly bay',camera:{shot_scale:'MEDIUM',lens:'NORMAL',angle:'EYE_LEVEL',movement:'STATIC',movement_speed:'NONE'},lighting_and_material:'Neutral light',continuity_from_previous:'Opening',transition_to_next:'Hold',required_visible_features:['steel'],forbidden_elements:['finished product'],temporal_action};
+  const raw:any={...initial,projectSchemaVersion:14,t2vPromptProfile:'veo-flow',phase:3,topic:{topic:{title:'X'}},voiceoverTranscription:{duration:8,sceneDurationSeconds:8,text:'Hello',words:[],scenes:[{number:1,start:0,end:8,duration:8,text:'Hello',silent:false}]},plannedScenes:[plan],sceneDirections:[scene],visualPrompts:[{number:1,action_description:'Tool seats fastener',video_prompt:'Historical compatible prompt',voiceover:'Hello',stock_keywords:'steel',operationFingerprint:'old-veo-fingerprint'}]};
+  const result=migrateProject(raw,initial,8);assert.equal(result.state?.phase,3);assert.equal(result.state?.visualPrompts[0].video_prompt,'Historical compatible prompt');assert.equal(result.state?.visualPrompts[0].operationFingerprint,'legacy-preserved-v13');assert.equal('t2vPromptProfile' in (result.state as any),false);assert.match(result.message||'',/future generation uses Omni Flash/i);
 });
 
 test('prefers an arbitrary positive V2 handoff duration over saved transcript timing', () => {
@@ -107,6 +113,6 @@ test('resets quota-driven schema 7 and 8 plans so they are rebuilt from the VO',
     assert.deepEqual(result.state?.plannedScenes,[]);
     assert.deepEqual(result.state?.sceneDirections,[]);
     assert.deepEqual(result.state?.visualPrompts,[]);
-    assert.equal(result.state?.projectSchemaVersion,14);
+    assert.equal(result.state?.projectSchemaVersion,15);
   }
 });

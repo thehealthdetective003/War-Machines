@@ -17,7 +17,7 @@ class MemoryStorage {
 const storage=new MemoryStorage();
 Object.defineProperty(globalThis,'localStorage',{value:storage,configurable:true});
 const prompt=(number:number)=>({number,video_prompt:`prompt ${number}`,action_description:'action',voiceover:'',stock_keywords:''} as T2VPrompt);
-const project=(id:string,count:number):AppState=>({id,projectSchemaVersion:14,projectName:id,projectFormat:'standard-lifecycle',phase:3,topic:null,plannedScenes:[],sceneDirections:[],masterVoiceoverScript:'',voiceoverTranscription:null,t2vPromptProfile:'omni-flash',visualPrompts:Array.from({length:count},(_,index)=>prompt(index+1)),demoState:'idle',demoScenes:[],demoSceneNumbers:[],generationSession:{...idleGenerationSession(),completedScenes:count}});
+const project=(id:string,count:number):AppState=>({id,projectSchemaVersion:15,projectName:id,projectFormat:'standard-lifecycle',phase:3,topic:null,plannedScenes:[],sceneDirections:[],masterVoiceoverScript:'',voiceoverTranscription:null,visualPrompts:Array.from({length:count},(_,index)=>prompt(index+1)),generationSession:{...idleGenerationSession(),completedScenes:count}});
 
 test('migrates duplicate legacy states, verifies the winner, and retains only three checkpoints',async()=>{
   await resetProjectStorageForTests();storage.clear();

@@ -83,7 +83,6 @@ const projectSummary=(project:FullProjectData):SavedProject=>({
   category:project.topic?.topic?.category||'Uncategorized',
   phase:project.phase,
   sceneCount:project.visualPrompts?.length||0,
-  demoOnly:(project.demoScenes?.length||0)>0&&(project.visualPrompts?.length||0)===0,
   savedAt:project.savedAt,
   createdAt:project.createdAt,
 });

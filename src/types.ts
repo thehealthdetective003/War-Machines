@@ -3,7 +3,6 @@ export type { ProductVisibility, StoryFunction, VisualFamily } from './types/vis
 
 export type PhaseType = 1 | 2 | 3;
 export type ProjectFormatId = 'standard-lifecycle';
-export type T2VPromptProfile = 'omni-flash' | 'veo-flow';
 export interface Settings {
   apiKey: string;
   model: string;
@@ -117,7 +116,7 @@ export interface TopicBrief {
      * A = raw materials / logistics (no finished product present)
      * B = mid-fabrication / sub-assembly (partial geometry only)
      * C = finished product visible (convoy, deployment, final cleanroom)
-     * When provided, this label is injected into the Phase 2 shot list
+     * When provided, this label is injected into the Production shot list
      * and travels into Phase 4 batches, eliminating per-batch LLM guessing.
     */
     state?: 'A' | 'B' | 'C';
@@ -389,6 +388,7 @@ export interface AppState {
   projectSchemaVersion: number;
   id?: string;
   projectName: string;
+  handoffFileName?: string;
   projectFormat: ProjectFormatId;
   phase: PhaseType;
   topic: TopicBrief | null;
@@ -396,11 +396,7 @@ export interface AppState {
   sceneDirections: SceneDirection[];
   masterVoiceoverScript: string;
   voiceoverTranscription: VoiceoverTranscription | null;
-  t2vPromptProfile: T2VPromptProfile;
   visualPrompts: T2VPrompt[];
-  demoState: 'idle' | 'generating' | 'review' | 'approved';
-  demoScenes: T2VPrompt[];
-  demoSceneNumbers: number[];
   generationSession: GenerationSession;
 }
 export interface SavedProject {
@@ -410,7 +406,6 @@ export interface SavedProject {
   category: string;
   phase: PhaseType;
   sceneCount: number;
-  demoOnly: boolean;
   savedAt: string;
   createdAt: string;
 }

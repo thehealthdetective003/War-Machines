@@ -40,6 +40,7 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
   const [isValid, setIsValid] = useState(false);
   const [parsedBrief, setParsedBrief] = useState<TopicBrief | null>(null);
   const [validationResult, setValidationResult] = useState<HandoffValidationResult | null>(null);
+  const [importedFileName,setImportedFileName]=useState('');
   const readiness=validateProductionReadiness(state);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -90,6 +91,7 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
   const handleImportBrief = async (file: File) => {
     try {
       const parsed = JSON.parse(await file.text());
+      setImportedFileName(file.name);
       setJsonInput(JSON.stringify(parsed, null, 2));
       setShowPasteEditor(true);
       const result = validateVisualProductionHandoff(parsed);
@@ -154,7 +156,8 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
       topic: parsedBrief,
       masterVoiceoverScript: prev.voiceoverTranscription?.text || parsedBrief.master_voiceover_script || '',
       projectName: parsedBrief.topic?.product || parsedBrief.topic?.title || "Untitled",
-      plannedScenes: [], sceneDirections: [], visualPrompts: [], demoScenes: [], demoSceneNumbers: [], demoState: 'idle',
+      handoffFileName: importedFileName || prev.handoffFileName || 'Pasted production handoff.json',
+      plannedScenes: [], sceneDirections: [], visualPrompts: [],
       generationSession: idleGenerationSession(),
       phase: 1,
     }));
@@ -163,10 +166,15 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
     const current=validateProductionReadiness(state);if(!current.ready)return toast.error(current.errors[0]);
     if(!(settings.apiKey||process.env.GEMINI_API_KEY))return toast.error('Add a Gemini API key in Settings before starting production.');
     const scenes=state.voiceoverTranscription!.scenes,previewPlan=buildDocumentaryScenePlan(state.topic!,scenes),generationSession=createProductionSession(scenes,previewPlan);
-    setState(previous=>({...previous,phase:2,plannedScenes:[],sceneDirections:[],visualPrompts:[],demoState:'idle',demoScenes:[],demoSceneNumbers:[],generationSession:{...generationSession,status:'running',startedAt:new Date().toISOString()}}));
+    setState(previous=>({...previous,phase:2,plannedScenes:[],sceneDirections:[],visualPrompts:[],generationSession:{...generationSession,status:'running',startedAt:new Date().toISOString()}}));
   };
   return (
     <div className="phase-canvas flex flex-col h-full w-full space-y-6 pb-8">
+      <div className="section-intro">
+        <div className="eyebrow">Two validated inputs</div>
+        <h2 className="mt-1 text-xl font-bold">Prepare the production source</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Load the Engine's visual handoff and the matching timestamped transcription. Production remains locked until both inputs agree.</p>
+      </div>
       {/* 1. TOP SECTION - Instructions */}
       <Collapsible
         open={isHowToOpen}
@@ -206,8 +214,12 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
           </div>
         </CollapsibleContent>
       </Collapsible>
-      {/* 2. MIDDLE SECTION - JSON Paste */}
+      {/* Visual Production Handoff */}
       <div className="space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div><div className="eyebrow">Input 01</div><h3 className="mt-1 text-lg font-bold">Visual Production Handoff</h3><p className="mt-1 text-xs text-muted-foreground">Engine-researched product identity, lifecycle, visual evidence, stages, environments, and scene policy.</p></div>
+          <Badge variant={state.topic?'default':'outline'}>{state.topic?'LOADED':'REQUIRED'}</Badge>
+        </div>
         <div className="grid sm:grid-cols-[1fr_auto] gap-3">
           <Button className="relative h-14 font-bold tracking-widest shadow-lg shadow-primary/20">
             <FileJson className="h-5 w-5 mr-2"/>IMPORT PRODUCTION JSON
@@ -232,7 +244,7 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
                   setWarnings([]);
                   setValidationResult(null);
                 }}
-                placeholder="{ paste your completed topic brief JSON here... }"
+                placeholder="{ paste your completed visual production handoff JSON here... }"
                 className="h-[500px] overflow-y-auto resize-none font-mono text-xs bg-slate-950/[0.03] dark:bg-slate-950/60 border-border/60 hover:border-primary/30 focus-visible:ring-primary/30 p-4 text-foreground shadow-inner focus-visible:border-primary/50 rounded-2xl"
               />
               <div className="absolute top-3 right-3 text-primary/20 pointer-events-none">
@@ -365,6 +377,16 @@ export function Phase1Topic({ state, setState }: Phase1TopicProps) {
         )}
       </AnimatePresence>
       {state.topic&&<div className="space-y-4">
+        <div className="content-panel p-4 sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div><div className="eyebrow">Validated handoff</div><div className="mt-1 font-semibold break-all">{state.handoffFileName||'Imported production handoff'}</div></div>
+            <div className="flex flex-wrap gap-2"><Badge><CheckCircle2 className="mr-1 h-3 w-3"/>VALID</Badge><Badge variant="outline">{validateVisualProductionHandoff(state.topic).status}</Badge>{validateVisualProductionHandoff(state.topic).version&&<Badge variant="outline">V{validateVisualProductionHandoff(state.topic).version}</Badge>}</div>
+          </div>
+        </div>
+        <div className="flex items-start justify-between gap-3 pt-2">
+          <div><div className="eyebrow">Input 02</div><h3 className="mt-1 text-lg font-bold">Timestamped Transcription</h3><p className="mt-1 text-xs text-muted-foreground">Imported timing stays authoritative and is not rewritten by production.</p></div>
+          <Badge variant={state.voiceoverTranscription?'default':'outline'}>{state.voiceoverTranscription?'LOADED':'REQUIRED'}</Badge>
+        </div>
         <TranscriptionImportPanel state={state} setState={setState}/>
         <div className="content-panel p-5 space-y-3">
           <div className="eyebrow">Setup compatibility</div>

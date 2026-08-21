@@ -57,7 +57,7 @@ test('detects quota exhaustion without treating ordinary validation failures as 
 
 test('invalidates only the edited transcription scene and all dependent later output',()=>{
   const timed=scenes(8),plan=plans(8),allDirections=timed.map(scene=>direction(scene.number)),allPrompts=timed.map(scene=>prompt(scene.number));
-  const state={phase:3,topic:null,voiceoverTranscription:{scenes:timed} as any,plannedScenes:plan,sceneDirections:allDirections,visualPrompts:allPrompts,demoState:'approved',demoScenes:[],demoSceneNumbers:[],generationSession:createResumableProductionSession(timed,plan,allDirections,allPrompts)} as AppState;
+  const state={phase:3,topic:null,voiceoverTranscription:{scenes:timed} as any,plannedScenes:plan,sceneDirections:allDirections,visualPrompts:allPrompts,generationSession:createResumableProductionSession(timed,plan,allDirections,allPrompts)} as AppState;
   const invalidated=invalidateFromScene(state,5);
   assert.deepEqual(invalidated.plannedScenes.map(item=>item.number),[1,2,3,4]);
   assert.deepEqual(invalidated.sceneDirections.map(item=>item.number),[1,2,3,4]);

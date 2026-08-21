@@ -55,7 +55,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
   const directionPrefixValid = planValid && !!transcription && repairedDirections.length <= transcription.scenes.length&&validateSceneDirections(repairedDirections,transcription.scenes,rawPlan,sceneDuration,{allowPartial:true}).length===0;
   const directionsValid = directionPrefixValid && repairedDirections.length === transcription.scenes.length;
   const imageMode = raw.phase4Mode === 'image-animation';
-  const profileSupported = raw.projectSchemaVersion >= 4 && (raw.t2vPromptProfile === 'omni-flash' || raw.t2vPromptProfile === 'veo-flow');
+  const legacyVeoProject=raw.t2vPromptProfile==='veo-flow';
   const rawPrompts = Array.isArray(raw.visualPrompts) ? raw.visualPrompts : [];
   const promptNumbers = new Set<number>();
   const promptsCompatible = raw.projectSchemaVersion >= 12 && directionPrefixValid && rawPrompts.every((item:any) => {
@@ -64,7 +64,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     if (valid) promptNumbers.add(number);
     return Boolean(valid);
   });
-  const compatiblePrompts: T2VPrompt[] = directionPrefixValid && !imageMode && profileSupported && promptsCompatible
+  const compatiblePrompts: T2VPrompt[] = directionPrefixValid && !imageMode && promptsCompatible
     ? rawPrompts.map((item: any) => {
         const number=Number(item.number);
         const base:T2VPrompt={
@@ -72,7 +72,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
         continuity_notes: item.continuity_notes, quality_flags: item.quality_flags,
         action_description: String(item.action_description || ''), video_prompt: String(item.video_prompt || ''),
         voiceover: transcription.scenes[number - 1]?.text || '', stock_keywords: String(item.stock_keywords || ''),
-        omniSections:item.omniSections,operationFingerprint:item.operationFingerprint||(raw.projectSchemaVersion<14?'legacy-preserved-v13':undefined),generationSource:item.generationSource||(raw.projectSchemaVersion<14?'LEGACY':undefined),
+        omniSections:item.omniSections,operationFingerprint:raw.projectSchemaVersion<15?'legacy-preserved-v13':item.operationFingerprint,generationSource:item.generationSource||(raw.projectSchemaVersion<15?'LEGACY':undefined),
       };
       return base;
     })
@@ -90,6 +90,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     ...initial,
     id: raw.id,
     projectName: raw.projectName || initial.projectName,
+    handoffFileName:raw.handoffFileName,
     projectFormat: 'standard-lifecycle',
     phase: phase as 1 | 2 | 3,
     topic: raw.topic || null,
@@ -98,17 +99,16 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     plannedScenes: planValid ? rawPlan : [],
     sceneDirections: directionPrefixValid ? repairedDirections : [],
     visualPrompts: preserveOutput ? compatiblePrompts.sort((a,b)=>a.number-b.number) : [],
-    demoState: 'idle', demoScenes: [], demoSceneNumbers: [],
-    t2vPromptProfile: profileSupported ? raw.t2vPromptProfile : 'omni-flash',
     generationSession,
-    projectSchemaVersion: 14,
+    projectSchemaVersion: 15,
   };
   generationSession=synchronizeProductionSession(generationSession,state);state.generationSession=productionComplete?{...generationSession,status:'complete',operation:'COMPLETE'}:generationSession;
-  const reset = timingChanged || imageMode || !profileSupported || (!directionPrefixValid && repairedDirections.length > 0) || (rawPrompts.length > 0 && !preserveOutput);
+  const reset = timingChanged || imageMode || (!directionPrefixValid && repairedDirections.length > 0) || (rawPrompts.length > 0 && !preserveOutput);
   const planningUpgrade = raw.projectSchemaVersion < 12 && rawPlan.length > 0;
   const resumableDirections = directionPrefixValid && (repairedDirections.length < (transcription?.scenes.length || 0)||compatiblePrompts.length<repairedDirections.length);
   return { state, message: planningUpgrade
     ? 'Project content and transcript were preserved. Phase 2 output was reset for global chapter, lifecycle, and VO/visual realignment.'
-    : resumableDirections ? `Restored durable production work: ${repairedDirections.length} directions and ${compatiblePrompts.length} prompts. Resume from ${state.generationSession.operation.replaceAll('_',' ')}.`
+    : resumableDirections ? `Restored durable production work: ${repairedDirections.length} directions and ${compatiblePrompts.length} prompts. Resume from ${state.generationSession.operation.replaceAll('_',' ')}.${legacyVeoProject?' Future generation now uses Omni Flash.':''}`
+    : legacyVeoProject ? 'Legacy project imported safely. Compatible historical prompts were preserved; future generation uses Omni Flash.'
     : reset && raw.topic ? 'Project migrated to the timestamped T2V pipeline; incompatible downstream output was reset.' : undefined };
 }

@@ -24,6 +24,7 @@ import { resplitTranscription, resetDownstreamForTiming } from './lib/timedTrans
 import { migrateProject, projectSceneDuration } from './lib/projectMigration';
 import { idleGenerationSession } from './lib/generationSession';
 import { validateProductionReadiness } from './lib/setupValidation';
+import { isWorkflowStageComplete } from './lib/workflowState';
 
 const Phase1Topic = lazy(() => import('./components/Phase1Topic').then(module => ({ default: module.Phase1Topic })));
 const ProductionPipeline = lazy(() => import('./components/ProductionPipeline').then(module => ({ default: module.ProductionPipeline })));
@@ -49,7 +50,7 @@ function WorkspaceLoader({ label = 'Preparing your project workspace' }: { label
   );
 }
 export const INITIAL_STATE: AppState = {
-  projectSchemaVersion: 14,
+  projectSchemaVersion: 15,
   id: undefined,
   projectName: 'Untitled Manufacturing Sequence',
   projectFormat: 'standard-lifecycle',
@@ -59,11 +60,7 @@ export const INITIAL_STATE: AppState = {
   sceneDirections: [],
   masterVoiceoverScript: '',
   voiceoverTranscription: null,
-  t2vPromptProfile: 'omni-flash',
   visualPrompts: [],
-  demoState: 'idle',
-  demoScenes: [],
-  demoSceneNumbers: [],
   generationSession: idleGenerationSession(),
 };
 
@@ -266,14 +263,7 @@ export default function App() {
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   }, []);
-  const isPhaseComplete = (phaseId: number) => {
-    switch (phaseId) {
-      case 1: return validateProductionReadiness(state).ready;
-      case 2: return state.generationSession.status==='complete'&&state.visualPrompts.length>0&&state.visualPrompts.length===state.voiceoverTranscription?.scenes.length;
-      case 3: return state.visualPrompts.length > 0 && state.visualPrompts.length === state.sceneDirections.length;
-      default: return false;
-    }
-  };
+  const isPhaseComplete=(phaseId:number)=>isWorkflowStageComplete(state,phaseId as PhaseType);
   const completedPhaseCount = PHASES.filter(phase => isPhaseComplete(phase.id)).length;
   if (!isLoaded || !isHydrated) {
     return <div className="app-shell min-h-screen bg-background text-foreground"><WorkspaceLoader /></div>;
@@ -526,12 +516,12 @@ export default function App() {
           <aside className="lg:sticky lg:top-[96px] space-y-4">
             <div className="workflow-panel">
               <button onClick={() => setIsStepperOpen(open => !open)} className="lg:hidden w-full flex items-center justify-between p-4" aria-expanded={isStepperOpen} aria-controls="production-workflow-steps">
-                <div className="text-left"><div className="eyebrow">Production workflow</div><div className="font-bold mt-1">Phase {activePhase?.id}: {activePhase?.label}</div></div>
+                <div className="text-left"><div className="eyebrow">Production workflow</div><div className="font-bold mt-1">Stage {activePhase?.id}: {activePhase?.label}</div></div>
                 <span className={`transition-transform ${isStepperOpen ? 'rotate-180' : ''}`}><svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M2 4.5L6 8.5L10 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
               </button>
               <div className="hidden lg:block p-5 pb-3">
                 <div className="eyebrow">Production workflow</div>
-                <div className="flex items-end justify-between mt-2"><span className="text-2xl font-extrabold">{completedPhaseCount}<span className="text-muted-foreground/50">/3</span></span><span className="text-[11px] text-muted-foreground">phases ready</span></div>
+                <div className="flex items-end justify-between mt-2"><span className="text-2xl font-extrabold">{completedPhaseCount}<span className="text-muted-foreground/50">/3</span></span><span className="text-[11px] text-muted-foreground">stages ready</span></div>
                 <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full workflow-progress" style={{width:`${(completedPhaseCount/3)*100}%`}} /></div>
               </div>
               <div id="production-workflow-steps" className={`${isStepperOpen ? 'block' : 'hidden'} lg:block border-t border-border/50 p-2.5`}>
@@ -575,7 +565,7 @@ export default function App() {
                 <CardHeader className={`workspace-header phase-tone-${activePhase?.id} border-b border-border/50 py-6 sm:py-7 px-5 sm:px-8`}>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-2">
-                      <div className="eyebrow">Phase 0{activePhase?.id} · {activePhase?.eyebrow}</div>
+                      <div className="eyebrow">Stage 0{activePhase?.id} · {activePhase?.eyebrow}</div>
                       <CardTitle className="text-2xl sm:text-3xl font-extrabold tracking-[-0.03em] flex items-center gap-3">
                         <span>{activePhase?.label}</span>
                       </CardTitle>
@@ -595,7 +585,7 @@ export default function App() {
                     {activePhase?.id === 1 ? (
                       <Phase1Topic state={state} setState={setState} />
                     ) : activePhase?.id === 2 ? (
-                      <ProductionPipeline state={state} setState={setState} commitProjectState={commitProjectState} />
+                      <ProductionPipeline state={state} setState={setState} commitProjectState={commitProjectState} onOpenSettings={()=>setIsSettingsOpen(true)} />
                     ) : activePhase?.id === 3 ? (
                       <Phase4Visuals
                         state={state}

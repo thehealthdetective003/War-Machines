@@ -29,21 +29,21 @@ test('partially accepts valid semantic groups and reports only the omitted group
 
 test('prompt partial acceptance persists nine results and retries only the failed scene',async()=>{
   resetApiUsageDiagnostics();const directions=Array.from({length:10},(_,index)=>({...direction(index+1),product_visibility:'NONE' as const,required_visible_features:[]}));
-  const calls:any[]=[];const ai={models:{generateContent:async(request:any)=>{calls.push(JSON.parse(request.contents));const requested=JSON.parse(request.contents).prompt_context.scenes as SceneDirection[];const items=requested.filter(item=>calls.length>1||item.number!==10).map(item=>({number:item.number,video_prompt:`A locked documentary camera watches one tool seat fastener ${item.number} on the steel module with progressive physical contact and a settled ending.`}));return {text:JSON.stringify(items)};}}};
-  const first=await requestPromptAttempt(ai,'gemini-test',{topic:null,t2vPromptProfile:'veo-flow'},directions);assert.equal(first.accepted.length,9);assert.deepEqual(first.failed.map(item=>item.number),[10]);
-  const firstPrompt=first.accepted[0].video_prompt,retry=await requestPromptAttempt(ai,'gemini-test',{topic:null,t2vPromptProfile:'veo-flow'},[directions[9]],first.reason||undefined);assert.equal(retry.accepted.length,1);assert.equal(calls[1].prompt_context.scenes.length,1);assert.equal(calls[1].prompt_context.scenes[0].number,10);assert.equal(first.accepted[0].video_prompt,firstPrompt);
+  const calls:any[]=[];const ai={models:{generateContent:async(request:any)=>{calls.push(JSON.parse(request.contents));const requested=JSON.parse(request.contents).prompt_context.scenes as SceneDirection[];const items=requested.filter(item=>calls.length>1||item.number!==10).map(item=>({number:item.number,prompt_sections:{cinematography:'Locked medium documentary camera at eye level',subject:`One steel module and fastener ${item.number}`,environment:'Documented assembly bay',style_lighting:'Neutral factory light on matte steel',exclusions:'Finished product, readable text, extra components'}}));return {text:JSON.stringify(items)};}}};
+  const first=await requestPromptAttempt(ai,'gemini-test',{topic:null},directions);assert.equal(first.accepted.length,9);assert.deepEqual(first.failed.map(item=>item.number),[10]);
+  const firstPrompt=first.accepted[0].video_prompt,retry=await requestPromptAttempt(ai,'gemini-test',{topic:null},[directions[9]],first.reason||undefined);assert.equal(retry.accepted.length,1);assert.equal(calls[1].prompt_context.scenes.length,1);assert.equal(calls[1].prompt_context.scenes[0].number,10);assert.equal(first.accepted[0].video_prompt,firstPrompt);
   const diagnostics=getApiUsageDiagnostics();assert.equal(diagnostics.totalApiCalls,2);assert.equal(diagnostics.promptApiCalls,2);assert.equal(diagnostics.correctionApiCalls,1);assert.equal(diagnostics.totalRequestedItems,11);assert.ok(diagnostics.fullBatchRetriesAvoided>=1);assert.ok(diagnostics.unusedGeneratedFieldsRemoved>0);
 });
 
 test('compiles an approved technical graphic locally without any API request or allocation change',async()=>{
   resetApiUsageDiagnostics();const graphic={...direction(1),visual_family:'TECHNICAL_GRAPHIC' as const,visual_treatment:'MOTION_GRAPHIC_T2V' as const,product_visibility:'NONE' as const,required_visible_features:['one text-free fastening relationship'],graphic_spec:{graphic_subtype:'MECHANICAL_RELATIONSHIP' as const,visual_claim:'Show one fastener seating into one steel module',composition:'ORTHOGRAPHIC_CUTAWAY' as const,motion_pattern:'COMPONENT_TRANSLATION' as const,annotation_devices:['DIRECTIONAL_ARROWS' as const],palette_profile:'PREMIUM_TECHNICAL_VECTOR' as const,maximum_animated_elements:1 as const,transition_anchor:null,text_policy:'NO_GENERATED_TEXT' as const}};
-  let calls=0;const ai={models:{generateContent:async()=>{calls++;throw new Error('API must not be called');}}};const result=await requestPromptAttempt(ai,'gemini-test',{topic:null,t2vPromptProfile:'omni-flash'},[graphic]);
+  let calls=0;const ai={models:{generateContent:async()=>{calls++;throw new Error('API must not be called');}}};const result=await requestPromptAttempt(ai,'gemini-test',{topic:null},[graphic]);
   assert.equal(calls,0);assert.equal(result.accepted.length,1);assert.equal(result.accepted[0].generationSource,'LOCAL_GRAPHIC');assert.match(result.accepted[0].video_prompt,/fastener seating into one steel module/i);assert.equal(graphic.visual_family,'TECHNICAL_GRAPHIC');assert.equal(getApiUsageDiagnostics().locallyCompiledGraphicPrompts,1);
-  assert.ok(compileLocalGraphicPrompt({topic:null,t2vPromptProfile:'veo-flow'},graphic).prompt);
+  assert.ok(compileLocalGraphicPrompt({topic:null},graphic).prompt);
 });
 
 test('reuses an unchanged prompt fingerprint and marks only a changed direction stale',()=>{
-  const original=direction(1),state={topic:null,t2vPromptProfile:'veo-flow' as const},fingerprint=promptOperationFingerprint(state,'gemini-test',original),stored=prompt(1,fingerprint);
+  const original=direction(1),state={topic:null},fingerprint=promptOperationFingerprint(state,'gemini-test',original),stored=prompt(1,fingerprint);
   const unchanged=partitionReusablePrompts([stored],[original],state,'gemini-test');assert.equal(unchanged.reusable.length,1);assert.deepEqual(unchanged.staleSceneNumbers,[]);
   const changed={...original,primary_action:'The tool removes the fastener from the steel module'};const updated=partitionReusablePrompts([stored],[changed],state,'gemini-test');assert.equal(updated.reusable.length,0);assert.deepEqual(updated.staleSceneNumbers,[1]);
 });
@@ -54,7 +54,7 @@ test('resume reuses completed directions and requests only the unfinished scene'
 });
 
 test('changing one direction invalidates only its dependent prompt',()=>{
-  const directions=[direction(1),direction(2)],prompts=[prompt(1),prompt(2)],state={projectSchemaVersion:14,projectName:'Test',projectFormat:'standard-lifecycle',phase:3,topic:null,plannedScenes:[plan(1),plan(2)],sceneDirections:directions,masterVoiceoverScript:'',voiceoverTranscription:{scenes:[timed(1),timed(2)]},t2vPromptProfile:'veo-flow',visualPrompts:prompts,demoState:'idle',demoScenes:[],demoSceneNumbers:[],generationSession:idleGenerationSession()} as unknown as AppState;
+  const directions=[direction(1),direction(2)],prompts=[prompt(1),prompt(2)],state={projectSchemaVersion:15,projectName:'Test',projectFormat:'standard-lifecycle',phase:3,topic:null,plannedScenes:[plan(1),plan(2)],sceneDirections:directions,masterVoiceoverScript:'',voiceoverTranscription:{scenes:[timed(1),timed(2)]},visualPrompts:prompts,generationSession:idleGenerationSession()} as unknown as AppState;
   const next=replaceDirectionAndInvalidatePrompt(state,{...directions[0],primary_action:'A revised fastening action'});assert.deepEqual(next.visualPrompts.map(item=>item.number),[2]);assert.equal(next.sceneDirections.find(item=>item.number===1)?.primary_action,'A revised fastening action');
 });
 

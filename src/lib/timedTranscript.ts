@@ -34,7 +34,7 @@ export function resplitTranscription(transcription: VoiceoverTranscription, scen
 }
 
 export function resetDownstreamForTiming<T extends Record<string, any>>(state: T): T {
-  return { ...state, phase: 1, plannedScenes: [], sceneDirections: [], visualPrompts: [], demoState: 'idle', demoScenes: [], demoSceneNumbers: [], generationSession: idleGenerationSession() };
+  return { ...state, phase: 1, plannedScenes: [], sceneDirections: [], visualPrompts: [], generationSession: idleGenerationSession() };
 }
 
 export function formatTimestamp(seconds: number): string {

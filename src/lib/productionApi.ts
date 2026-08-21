@@ -3,7 +3,7 @@ import type { AlignmentRequestGroup, VisualAlignmentSelection } from './visualAl
 import { validateAlignmentSelections } from './visualAlignment';
 import { mergeDirectionMetadata, validateSceneDirections } from './sceneDirections';
 import { directionSemanticIssues } from './directionSemantics';
-import { buildFocusedProductionContext } from './flowPrompt';
+import { buildFocusedProductionContext } from './omniPromptContext';
 import { ALIGNMENT_INSTRUCTION_VERSION, composeAlignmentInstruction, composeDirectionInstruction, DIRECTION_INSTRUCTION_VERSION } from './productionInstructions';
 import { isReusableFingerprint, operationFingerprint } from './operationFingerprint';
 

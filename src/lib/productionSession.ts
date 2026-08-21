@@ -66,7 +66,7 @@ export const isQuotaOrRateLimitError=(error:unknown)=>{const value=`${error inst
 export function invalidateFromScene(state:AppState,firstChangedScene:number):AppState{
   const keep=(number:number)=>number<firstChangedScene,plannedScenes=state.plannedScenes.filter(item=>keep(item.number)),sceneDirections=state.sceneDirections.filter(item=>keep(item.number)),visualPrompts=state.visualPrompts.filter(item=>keep(item.number));
   const session=createResumableProductionSession(state.voiceoverTranscription?.scenes||[],plannedScenes,sceneDirections,visualPrompts);
-  return {...state,phase:1,plannedScenes,sceneDirections,visualPrompts,demoState:'idle',demoScenes:[],demoSceneNumbers:[],generationSession:synchronizeProductionSession(session,{...state,plannedScenes,sceneDirections,visualPrompts})};
+  return {...state,phase:1,plannedScenes,sceneDirections,visualPrompts,generationSession:synchronizeProductionSession(session,{...state,plannedScenes,sceneDirections,visualPrompts})};
 }
 
 export function firstChangedTranscriptionScene(previous:TimedScene[],next:TimedScene[]):number|null{

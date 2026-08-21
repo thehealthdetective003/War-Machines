@@ -10,7 +10,6 @@ import {
   FileText,
   Code,
   Calculator,
-  Play,
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
@@ -91,13 +90,11 @@ export function ProjectLibrary({
     toast.success("Project deleted");
   };
 
-  const getPhaseInfo = (phase: PhaseType, demoOnly: boolean) => {
+  const getPhaseInfo = (phase: PhaseType) => {
     switch (phase) {
       case 1: return { label: 'SETUP', color: 'bg-slate-500/10 text-slate-500 border-slate-500/20', icon: <FileText className="h-3 w-3 mr-1" /> };
       case 2: return { label: 'PRODUCTION', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', icon: <Code className="h-3 w-3 mr-1" /> };
-      case 3:
-        if (demoOnly) return { label: 'T2V DEMO', color: 'border-amber-500/50 text-amber-500 bg-transparent', icon: <Play className="h-3 w-3 mr-1" /> };
-        return { label: 'REVIEW & EXPORT', color: 'bg-amber-500/10 text-amber-500 border-amber-500/20 font-bold', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
+      case 3: return { label: 'REVIEW & EXPORT', color: 'bg-amber-500/10 text-amber-500 border-amber-500/20 font-bold', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
       default: return { label: 'UNKNOWN', color: 'bg-slate-500/10 text-slate-500', icon: null };
     }
   };
@@ -156,7 +153,7 @@ export function ProjectLibrary({
               </div>
             ) : (
               filteredProjects.map((project) => {
-                const phaseInfo = getPhaseInfo(project.phase, project.demoOnly);
+                const phaseInfo = getPhaseInfo(project.phase);
                 const isConfirming = deleteConfirm === project.id;
                 
                 return (
@@ -178,7 +175,7 @@ export function ProjectLibrary({
                             {phaseInfo.label}
                           </Badge>
                           <Badge variant="secondary" className="text-[10px] py-0 px-1.5 font-mono opacity-80">
-                            {project.sceneCount === 0 && !project.demoOnly ? '—' : project.demoOnly ? '10 demo' : `${project.sceneCount} scenes`}
+                            {project.sceneCount === 0 ? '—' : `${project.sceneCount} scenes`}
                           </Badge>
                         </div>
                       </div>
