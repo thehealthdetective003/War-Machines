@@ -93,8 +93,8 @@ export function ProjectLibrary({
   const getPhaseInfo = (phase: PhaseType) => {
     switch (phase) {
       case 1: return { label: 'SETUP', color: 'bg-slate-500/10 text-slate-500 border-slate-500/20', icon: <FileText className="h-3 w-3 mr-1" /> };
-      case 2: return { label: 'PRODUCTION', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', icon: <Code className="h-3 w-3 mr-1" /> };
-      case 3: return { label: 'REVIEW & EXPORT', color: 'bg-amber-500/10 text-amber-500 border-amber-500/20 font-bold', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
+      case 2: return { label: 'PRODUCTION', color: 'bg-primary/10 text-primary border-primary/20', icon: <Code className="h-3 w-3 mr-1" /> };
+      case 3: return { label: 'REVIEW & EXPORT', color: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-medium', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
       default: return { label: 'UNKNOWN', color: 'bg-slate-500/10 text-slate-500', icon: null };
     }
   };
@@ -102,7 +102,7 @@ export function ProjectLibrary({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="sm:max-w-[480px] p-0 flex flex-col bg-card" showCloseButton={false}>
-        <SheetHeader className="p-6 pb-5 border-b border-border/60 bg-gradient-to-br from-primary/10 via-transparent to-cyan-500/5">
+        <SheetHeader className="p-6 pb-5 border-b border-border/60 bg-muted/20">
           <div className="flex items-center justify-between mb-4">
             <SheetTitle className="text-xl font-extrabold tracking-tight flex items-center gap-3">
               <span className="section-icon"><FolderOpen className="h-5 w-5" /></span> Project library
@@ -120,7 +120,7 @@ export function ProjectLibrary({
           <Button 
             id="new-project-button-library"
             onClick={onNewProject}
-            className="w-full font-bold h-11 tracking-wide shadow-lg shadow-primary/15"
+            className="w-full font-semibold h-11 tracking-wide"
           >
             <Plus className="h-4 w-4 mr-2" /> NEW PROJECT
           </Button>
@@ -159,7 +159,7 @@ export function ProjectLibrary({
                 return (
                   <div 
                     key={project.id}
-                    className="p-4 rounded-2xl bg-muted/20 border border-border/60 hover:border-primary/30 hover:bg-primary/[0.035] hover:shadow-md transition-all group overflow-hidden"
+                    className="p-4 rounded-xl bg-muted/20 border border-border/60 hover:border-primary/30 hover:bg-primary/[0.035] transition-colors group overflow-hidden"
                   >
                     <div className="flex flex-col gap-3">
                       <div className="space-y-1">

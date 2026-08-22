@@ -1,4 +1,5 @@
 import type { PlannedScene, SceneDirection, TopicBrief } from '../types';
+import { resolveSceneContract } from './sceneContract';
 
 const words=(value:string)=>value.trim().split(/\s+/).filter(Boolean);
 const truncateWords=(value:string,limit:number)=>{const parts=words(value);return parts.length>limit?`${parts.slice(0,limit).join(' ').replace(/[,:;|]+$/,'')}.`:value.trim();};
@@ -21,7 +22,7 @@ export function relevantNegatives(direction:SceneDirection,topic:TopicBrief|null
 }
 
 type FocusedContextItem=Pick<SceneDirection,'stage_id'|'environment_ref'|'beat_id'|'reference_asset_ids'>|Pick<PlannedScene,'stage_id'|'environment_ref'|'beat_id'|'reference_asset_ids'>;
-export function buildFocusedProductionContext(topic:TopicBrief|null,directions:FocusedContextItem[]){
+export function buildLegacyFocusedProductionContext(topic:TopicBrief|null,directions:FocusedContextItem[]){
   const handoff=(topic as any)?._production_handoff;if(!handoff||typeof handoff!=='object')return null;
   const stageIds=new Set(directions.map(direction=>direction.stage_id).filter(Boolean)),environmentIds=new Set(directions.map(direction=>direction.environment_ref).filter(Boolean)),beatIds=new Set(directions.map(direction=>direction.beat_id).filter(Boolean));
   const stages=(Array.isArray(handoff.production_stages)?handoff.production_stages:[]).filter((stage:any)=>stageIds.has(stage.stage_id));
@@ -33,8 +34,22 @@ export function buildFocusedProductionContext(topic:TopicBrief|null,directions:F
   return {schema:handoff.schema,product:handoff.product,dimensions_and_proportions:handoff.dimensions_and_proportions,global_prompt_rules:handoff.global_prompt_rules,production_stages:stages,environments:(handoff.environments||[]).filter((environment:any)=>environmentIds.has(environment.environment_id)),geometry_modules:(handoff.geometry_modules||[]).filter((module:any)=>moduleIds.has(module.module_id)),reference_assets:(handoff.reference_assets||[]).filter((asset:any)=>referenceIds.has(asset.asset_id)),selected_beats:selectedBeats,stage_transitions:(handoff.stage_transitions||[]).filter((transition:any)=>stageIds.has(transition.from_stage_id)||stageIds.has(transition.to_stage_id))};
 }
 
+export function buildFocusedProductionContext(topic:TopicBrief|null,directions:FocusedContextItem[]){
+  const handoff=(topic as any)?._production_handoff;if(!handoff||typeof handoff!=='object')return null;
+  const contracts=directions.map(direction=>resolveSceneContract(topic,direction as PlannedScene));
+  if(contracts.every(contract=>!contract.stage&&!contract.beat))return buildLegacyFocusedProductionContext(topic,directions);
+  const stageIds=new Set(contracts.map(contract=>contract.stageId).filter(Boolean)),environmentIds=new Set<string>(),beatIds=new Set<string>(),moduleIds=new Set<string>(),referenceIds=new Set<string>();
+  contracts.forEach(contract=>{contract.allowedEnvironmentIds.forEach(id=>environmentIds.add(id));if(contract.selectedEnvironmentId)environmentIds.add(contract.selectedEnvironmentId);if(contract.beat?.beat_id)beatIds.add(contract.beat.beat_id);contract.geometryModuleIds.forEach(id=>moduleIds.add(id));contract.referenceAssetIds.forEach(id=>referenceIds.add(id));});
+  const stages=(Array.isArray(handoff.production_stages)?handoff.production_stages:[]).filter((stage:any)=>stageIds.has(stage.stage_id));
+  return {schema:handoff.schema,product:handoff.product,dimensions_and_proportions:handoff.dimensions_and_proportions,global_prompt_rules:handoff.global_prompt_rules,production_stages:stages,environments:(handoff.environments||[]).filter((environment:any)=>environmentIds.has(environment.environment_id)),geometry_modules:(handoff.geometry_modules||[]).filter((module:any)=>moduleIds.has(module.module_id)),reference_assets:(handoff.reference_assets||[]).filter((asset:any)=>referenceIds.has(asset.asset_id)),selected_beats:(handoff.visual_story_plan?.chapters||[]).flatMap((chapter:any)=>chapter.visual_beats||[]).filter((beat:any)=>beatIds.has(beat.beat_id)),resolved_scene_contracts:contracts.map(contract=>({resolver_version:contract.resolverVersion,scene_number:contract.sceneNumber,chapter_id:contract.chapterId,beat_id:contract.beatId,stage_id:contract.stageId,visual_family:contract.visualFamily,story_function:contract.storyFunction,visual_treatment:contract.visualTreatment,state:contract.state,allowed_environment_ids:contract.allowedEnvironmentIds,selected_environment_id:contract.selectedEnvironmentId,product_visibility:contract.productVisibility,facility_claim_status:contract.facilityClaimStatus,generation_permission:contract.generationPermission,preferred_media_routes:contract.preferredMediaRoutes,reference_asset_ids:contract.referenceAssetIds,required_visible_features:contract.requiredVisibleFeatures,forbidden_elements:contract.forbiddenElements,continuity_requirements:contract.continuityRequirements,resolution_sources:contract.resolutionSources})),stage_transitions:(handoff.stage_transitions||[]).filter((transition:any)=>stageIds.has(transition.from_stage_id)||stageIds.has(transition.to_stage_id))};
+}
+
 export function focusedContextCharacterSavings(topic:TopicBrief|null,focused:unknown):number{const handoff=(topic as any)?._production_handoff;if(!handoff)return 0;return Math.max(0,JSON.stringify(handoff).length-JSON.stringify(focused).length);}
 
 export function buildOmniPromptContext(topic:TopicBrief|null,directions:SceneDirection[]){
   return {target_profile:'omni-flash',canonical_finished_identity:compactIdentity(topic),cinematography_rules:topic?.cinematography_rules,continuity_rules:topic?.scene_continuity_rules,authoritative_production_handoff:buildFocusedProductionContext(topic,directions),scenes:directions.map(direction=>({...direction,relevant_forbidden_elements:relevantNegatives(direction,topic)}))};
+}
+
+export function buildLegacyOmniPromptContext(topic:TopicBrief|null,directions:SceneDirection[]){
+  return {target_profile:'omni-flash',canonical_finished_identity:compactIdentity(topic),cinematography_rules:topic?.cinematography_rules,continuity_rules:topic?.scene_continuity_rules,authoritative_production_handoff:buildLegacyFocusedProductionContext(topic,directions),scenes:directions.map(direction=>({...direction,relevant_forbidden_elements:relevantNegatives(direction,topic)}))};
 }

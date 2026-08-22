@@ -2,6 +2,7 @@ import type { PlannedScene, TimedScene, TopicBrief, VisualFamily, VisualTreatmen
 import type { V2VisualBeat, V2VisualBalanceTargets, V2VisualStoryPlan } from '../types/visualProductionV2';
 import { deriveGraphicSceneSpec, resolvePlannedState } from './scenePlanner';
 import { GRAPHIC_VISUAL_FAMILIES, graphicNeedScore } from './visualPolicy';
+import { applyResolvedSceneContract } from './sceneContract';
 export { GRAPHIC_VISUAL_FAMILIES, graphicNeedScore, hasStrongGraphicNeed } from './visualPolicy';
 
 const DEFAULT_POLICY={
@@ -116,9 +117,9 @@ export function auditVisualBalance(topic:TopicBrief|null|undefined,scenes:TimedS
 }
 
 function buildAlternative(topic:TopicBrief,scene:TimedScene,current:PlannedScene,candidate:BeatCandidate):PlannedScene{
-  const beat=candidate.beat,stage=beat.applicable_stage_ids.includes(current.stage_id)?current.stage_id:(beat.applicable_stage_ids[0]||current.stage_id),environment=beat.environment_ids.includes(current.environment_ref)?current.environment_ref:(beat.environment_ids[0]||current.environment_ref);
-  const next:PlannedScene={...current,chapter_id:candidate.chapterId,beat_id:beat.beat_id,visual_family:beat.visual_family,story_function:beat.story_function,visual_treatment:treatmentFor(beat),product_visibility:beat.product_visibility,stage_id:stage,environment_ref:environment,state:resolvePlannedState(topic,stage,beat.product_visibility),graphic_spec:null,reference_asset_ids:[...beat.reference_asset_ids],required_visible_features:[...beat.must_show],forbidden_elements:[...beat.must_not_show,...beat.negative_constraints],continuity_requirements:[...beat.continuity_requirements]};
-  next.graphic_spec=deriveGraphicSceneSpec(topic,scene,next);return next;
+  const beat=candidate.beat,stage=beat.applicable_stage_ids.includes(current.stage_id)?current.stage_id:(beat.applicable_stage_ids[0]||current.stage_id);
+  let next:PlannedScene={...current,chapter_id:candidate.chapterId,beat_id:beat.beat_id,contract_beat_id:beat.beat_id,visual_family:beat.visual_family,story_function:beat.story_function,visual_treatment:treatmentFor(beat),product_visibility:beat.product_visibility,stage_id:stage,environment_ref:'',state:resolvePlannedState(topic,stage,beat.product_visibility),graphic_spec:null,reference_asset_ids:[...beat.reference_asset_ids],required_visible_features:[...beat.must_show],forbidden_elements:[...beat.must_not_show,...beat.negative_constraints],continuity_requirements:[...beat.continuity_requirements]};
+  next=applyResolvedSceneContract(topic,next,beat.beat_id);next.graphic_spec=deriveGraphicSceneSpec(topic,scene,next);return next;
 }
 
 function selectAlternative(topic:TopicBrief,scene:TimedScene,current:PlannedScene,base:PlannedScene|undefined,plan:PlannedScene[],index:number,beats:BeatCandidate[],accept:(item:PlannedScene)=>boolean,policy:Policy):PlannedScene|null{

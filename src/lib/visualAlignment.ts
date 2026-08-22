@@ -4,6 +4,7 @@ import { deriveGraphicSceneSpec, resolvePlannedState } from './scenePlanner';
 import { isManufacturingVisualClaim, isOperationalVisualClaim, lifecycleAlignmentIssues } from './directionSemantics';
 import { GRAPHIC_VISUAL_FAMILIES, hasStrongGraphicNeed, rebalanceVisualPlan } from './visualBalance';
 import type { VisualBalanceDiagnostics } from './visualBalance';
+import { applyResolvedSceneContract, resolveSceneContract } from './sceneContract';
 
 export interface NarrativeVisualGroup {
   group_id:string;
@@ -100,13 +101,16 @@ export const classifyFallbackVisualFamily=(text:string):VisualFamily=>{
   return 'ASSEMBLY_PROCESS';
 };
 
-const routeFallback=(handoff:any,request:AlignmentRequestGroup,selection:VisualAlignmentSelection,base:PlannedScene)=>{
+const routeFallback=(topic:TopicBrief,request:AlignmentRequestGroup,selection:VisualAlignmentSelection,base:PlannedScene)=>{
+  const handoff:any=topic._production_handoff;
   const desired=classifyFallbackVisualFamily(selection.visual_claim),claimTokens=tokens(`${request.voiceover} ${selection.visual_claim}`);
   const allowed:(V2VisualBeat[])=(handoff?.visual_story_plan?.chapters||[]).flatMap((chapter:any)=>chapter.visual_beats||[]).filter((beat:V2VisualBeat)=>beat.generation_permission==='T2V_ALLOWED'&&beat.preferred_media_routes?.includes('GENERATED_T2V'));
   const compatible=allowed.filter(beat=>desired==='OPERATIONAL_CONTEXT'?OPERATIONAL_FAMILIES.has(beat.visual_family):desired==='TECHNICAL_GRAPHIC'?GRAPHIC_FAMILIES.has(beat.visual_family):PHYSICAL_PROCESS_FAMILIES.has(beat.visual_family));
   const ranked=compatible.map(beat=>({beat,score:overlap(claimTokens,tokens(`${beat.beat_name} ${beat.narrative_purpose} ${(beat.semantic_alignment_terms||[]).join(' ')}`))})).sort((a,b)=>b.score-a.score||a.beat.beat_order-b.beat.beat_order);
   const beat=ranked[0]?.beat,operationalStage=desired==='OPERATIONAL_CONTEXT'?(handoff?.production_stages||[]).find((item:any)=>item.product_state_code==='C'):null;
-  const stage=beat?.applicable_stage_ids[0]||operationalStage?.stage_id||base.stage_id,environment=beat?.environment_ids[0]||operationalStage?.environment_ids?.[0]||(desired==='OPERATIONAL_CONTEXT'?(handoff?.environments||[]).find((item:any)=>item.setting_scope==='OPERATIONAL')?.environment_id:null)||base.environment_ref;
+  const stage=beat?.applicable_stage_ids[0]||operationalStage?.stage_id||base.stage_id;
+  const contract=resolveSceneContract(topic,{...base,stage_id:stage,environment_ref:'',contract_beat_id:beat?.beat_id});
+  const environment=contract.selectedEnvironmentId||(desired==='OPERATIONAL_CONTEXT'?(handoff?.environments||[]).find((item:any)=>item.setting_scope==='OPERATIONAL')?.environment_id:null)||base.environment_ref;
   return {desired,beat,stage,environment};
 };
 
@@ -129,15 +133,15 @@ export function applyVisualAlignments(topic:TopicBrief,scenes:TimedScene[],baseP
     const matched=selectionByScene.get(base.number);if(!matched)return base;const {selection,request}=matched;
     const semantic={semantic_group_id:request.group_id,semantic_group_beat_id:selection.beat_id,semantic_group_intent:selection.visual_claim};
     if(selection.source==='VO_FALLBACK'){
-      const route=routeFallback(handoff,request,selection,base),family=route.beat?.visual_family||route.desired,visual_treatment:VisualTreatment=route.beat?treatment(route.beat):family==='TECHNICAL_GRAPHIC'?'MOTION_GRAPHIC_T2V':'LIVE_ACTION_T2V',visibility=(route.beat?.product_visibility||(GRAPHIC_FAMILIES.has(family)?'NONE':OPERATIONAL_FAMILIES.has(family)?'FULL':'PARTIAL')) as PlannedScene['product_visibility'];
+      const route=routeFallback(topic,request,selection,base),family=route.beat?.visual_family||route.desired,visual_treatment:VisualTreatment=route.beat?treatment(route.beat):family==='TECHNICAL_GRAPHIC'?'MOTION_GRAPHIC_T2V':'LIVE_ACTION_T2V',visibility=(route.beat?.product_visibility||(GRAPHIC_FAMILIES.has(family)?'NONE':OPERATIONAL_FAMILIES.has(family)?'FULL':'PARTIAL')) as PlannedScene['product_visibility'];
       if(GRAPHIC_FAMILIES.has(family)&&!matched.graphicSceneNumbers.has(base.number))return {...base,...semantic};
-      const plan:PlannedScene={...base,...semantic,beat_id:`${base.chapter_id}__VO_FALLBACK_${request.group_id}`,visual_family:family,story_function:route.beat?.story_function||(GRAPHIC_FAMILIES.has(family)?'EXPLAIN_HIDDEN_SYSTEM':OPERATIONAL_FAMILIES.has(family)?'DELIVER_PAYOFF':'EXPLAIN_PROCESS'),visual_treatment,product_visibility:visibility,stage_id:route.stage,environment_ref:route.environment,graphic_spec:null,reference_asset_ids:[],required_visible_features:GRAPHIC_FAMILIES.has(family)?['one text-free visual relationship',selection.visual_claim]:[selection.visual_claim],forbidden_elements:[...(route.beat?.must_not_show||[]),...(route.beat?.negative_constraints||[]),'unassigned exact facility or event claim','invented proprietary detail'],continuity_requirements:[...(route.beat?.continuity_requirements||[]),'preserve the routed lifecycle stage and environment'],alignment_source:'VO_FALLBACK',alignment_confidence:selection.confidence,alignment_claim:selection.visual_claim};
-      plan.state=resolvePlannedState(topic,plan.stage_id,plan.product_visibility);plan.graphic_spec=deriveGraphicSceneSpec(topic,scenes[index],plan);if(plan.graphic_spec)plan.graphic_spec={...plan.graphic_spec,visual_claim:selection.visual_claim};return plan;
+      let plan:PlannedScene={...base,...semantic,beat_id:`${base.chapter_id}__VO_FALLBACK_${request.group_id}`,contract_beat_id:route.beat?.beat_id,visual_family:family,story_function:route.beat?.story_function||(GRAPHIC_FAMILIES.has(family)?'EXPLAIN_HIDDEN_SYSTEM':OPERATIONAL_FAMILIES.has(family)?'DELIVER_PAYOFF':'EXPLAIN_PROCESS'),visual_treatment,product_visibility:visibility,stage_id:route.stage,environment_ref:route.environment,graphic_spec:null,reference_asset_ids:[],required_visible_features:GRAPHIC_FAMILIES.has(family)?['one text-free visual relationship',selection.visual_claim]:[selection.visual_claim],forbidden_elements:[...(route.beat?.must_not_show||[]),...(route.beat?.negative_constraints||[]),'unassigned exact facility or event claim','invented proprietary detail'],continuity_requirements:[...(route.beat?.continuity_requirements||[]),'preserve the routed lifecycle stage and environment'],alignment_source:'VO_FALLBACK',alignment_confidence:selection.confidence,alignment_claim:selection.visual_claim};
+      plan.state=resolvePlannedState(topic,plan.stage_id,plan.product_visibility);plan=applyResolvedSceneContract(topic,plan,route.beat?.beat_id);plan.graphic_spec=deriveGraphicSceneSpec(topic,scenes[index],plan);if(plan.graphic_spec)plan.graphic_spec={...plan.graphic_spec,visual_claim:selection.visual_claim};return plan;
     }
-    const beat=beats.get(selection.beat_id!);if(!beat)return base;const stage=beat.applicable_stage_ids[0]||base.stage_id,environment=beat.environment_ids[0]||base.environment_ref;
+    const beat=beats.get(selection.beat_id!);if(!beat)return base;const stage=beat.applicable_stage_ids[0]||base.stage_id;
     if(GRAPHIC_FAMILIES.has(beat.visual_family)&&!matched.graphicSceneNumbers.has(base.number))return {...base,...semantic};
-    const plan:PlannedScene={...base,...semantic,beat_id:beat.beat_id,visual_family:beat.visual_family,story_function:beat.story_function,visual_treatment:treatment(beat),product_visibility:beat.product_visibility,stage_id:stage,environment_ref:environment,state:resolvePlannedState(topic,stage,beat.product_visibility),graphic_spec:null,reference_asset_ids:[...beat.reference_asset_ids],required_visible_features:[...beat.must_show],forbidden_elements:[...beat.must_not_show,...beat.negative_constraints],continuity_requirements:[...beat.continuity_requirements],alignment_source:'ENGINE_BEAT',alignment_confidence:selection.confidence,alignment_claim:selection.visual_claim};
-    plan.graphic_spec=deriveGraphicSceneSpec(topic,scenes[index],plan);return plan;
+    let plan:PlannedScene={...base,...semantic,beat_id:beat.beat_id,contract_beat_id:beat.beat_id,visual_family:beat.visual_family,story_function:beat.story_function,visual_treatment:treatment(beat),product_visibility:beat.product_visibility,stage_id:stage,environment_ref:'',state:resolvePlannedState(topic,stage,beat.product_visibility),graphic_spec:null,reference_asset_ids:[...beat.reference_asset_ids],required_visible_features:[...beat.must_show],forbidden_elements:[...beat.must_not_show,...beat.negative_constraints],continuity_requirements:[...beat.continuity_requirements],alignment_source:'ENGINE_BEAT',alignment_confidence:selection.confidence,alignment_claim:selection.visual_claim};
+    plan=applyResolvedSceneContract(topic,plan,beat.beat_id);plan.graphic_spec=deriveGraphicSceneSpec(topic,scenes[index],plan);return plan;
   });
   const balanced=rebalanceVisualPlan(topic,scenes,aligned,basePlan);onBalanceDiagnostics?.(balanced.diagnostics);return balanced.plan;
 }

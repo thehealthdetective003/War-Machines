@@ -1,12 +1,14 @@
 import type { CameraPlatform, CinematicEnergy, GraphicAnnotationDevice, GraphicComposition, GraphicMotionPattern, GraphicSceneSpec, GraphicSubtype, PlannedScene, ProductVisibility, ShowdownRole, StoryFunction, TimedScene, TopicBrief, VisualFamily, VisualTreatment } from '../types';
 import type { V2Chapter, V2VisualBeat, VisualProductionHandoffV2 } from '../types/visualProductionV2';
 import { graphicNeedScore } from './visualPolicy';
+import { applyResolvedSceneContract, resolveSceneContract } from './sceneContract';
 
 interface Candidate {
   chapter: V2Chapter | null;
   beat: V2VisualBeat;
   treatment: VisualTreatment;
   sourceBeatId: string;
+  contractBeatId?: string;
 }
 
 const CONTEXT = new Set<VisualFamily>(['FACTORY_AERIAL','FACTORY_EXTERIOR','FACILITY_APPROACH','FACTORY_INTERIOR_WIDE','MAP_OR_SUPPLY_CHAIN']);
@@ -176,7 +178,7 @@ function candidatesFromV2(handoff: VisualProductionHandoffV2): Candidate[] {
   // is required to provide a separate generated-T2V alternative for that purpose.
   return all
     .filter(({beat})=>beat.generation_permission==='T2V_ALLOWED'&&beat.preferred_media_routes.includes('GENERATED_T2V'))
-    .map(({chapter,beat})=>({chapter,beat,treatment:treatmentFor(beat),sourceBeatId:beat.beat_id}));
+    .map(({chapter,beat})=>({chapter,beat,treatment:treatmentFor(beat),sourceBeatId:beat.beat_id,contractBeatId:beat.beat_id}));
 }
 
 function legacyCandidates(topic: TopicBrief): Candidate[] {
@@ -300,8 +302,10 @@ function selectGraphicScenes(scenes:TimedScene[],chapterAssignments:Array<V2Chap
 function semanticFallbackCandidate(chapter:V2Chapter|null,candidates:Candidate[],topic:TopicBrief):Candidate{
   const seed=candidates.find(candidate=>candidate.chapter?.chapter_id===chapter?.chapter_id)||candidates[0];
   if(seed){
-    const stage=seed.beat.applicable_stage_ids[0]||chapter?.applicable_production_stage_ids[0]||topic.lifecycle_stages?.[0]?.stage_id||'STAGE_01';
-    const environment=seed.beat.environment_ids[0]||topic.lifecycle_stages?.find(item=>item.stage_id===stage)?.environment_ref||topic.environments[0]?.environment_id||'ENV_01';
+    const requestedStage=seed.beat.applicable_stage_ids[0]||chapter?.applicable_production_stage_ids[0]||topic.lifecycle_stages?.[0]?.stage_id||'STAGE_01';
+    const seedContract=resolveSceneContract(topic,{number:0,chapter_id:chapter?.chapter_id||'',beat_id:seed.sourceBeatId,contract_beat_id:seed.contractBeatId,stage_id:requestedStage,environment_ref:'',visual_family:seed.beat.visual_family,story_function:seed.beat.story_function,visual_treatment:seed.treatment,product_visibility:seed.beat.product_visibility,state:resolvePlannedState(topic,requestedStage,seed.beat.product_visibility),reference_asset_ids:[],required_visible_features:[],forbidden_elements:[],continuity_requirements:[]});
+    const stage=seedContract.stageId||requestedStage;
+    const environment=seedContract.selectedEnvironmentId||topic.lifecycle_stages?.find(item=>item.stage_id===stage)?.environment_ref||topic.environments[0]?.environment_id||'ENV_01';
     const beat:V2VisualBeat={...seed.beat,beat_id:`${chapter?.chapter_id||'LEGACY'}__SEMANTIC_FALLBACK`,beat_name:'Narration-matched manufacturing evidence',story_function:'EXPLAIN_PROCESS',visual_family:'ASSEMBLY_PROCESS',narrative_purpose:'Show the physical manufacturing subject, component, interface, or test described by this narration without changing location or lifecycle state.',semantic_alignment_terms:['manufacturing','assembly','component','interface','test'],applicable_stage_ids:[stage],environment_ids:[environment],product_visibility:'PARTIAL',reference_asset_ids:[],preferred_media_routes:['GENERATED_T2V'],generation_permission:'T2V_ALLOWED',exact_factory_claim_allowed:false,must_show:[],must_not_show:[...seed.beat.must_not_show,'deployed product footage unrelated to the narration','unassigned factory aerial','unassigned technical graphic']};
     return {chapter,beat,treatment:'LIVE_ACTION_T2V',sourceBeatId:beat.beat_id};
   }
@@ -314,7 +318,6 @@ export function buildDocumentaryScenePlan(topic: TopicBrief, scenes: TimedScene[
   const aviationEligible=isAviationProduct(topic);
   const sourceCandidates = handoff ? candidatesFromV2(handoff) : legacyCandidates(topic);
   const candidates=sourceCandidates.filter(candidate=>operationalEligible||!OPERATIONAL.has(candidate.beat.visual_family)||!candidate.sourceBeatId.startsWith('SYNTH_'));
-  const stages = handoff?.production_stages || [];
   const rhythm=handoff?.visual_story_plan.rhythm_policy;
   const chapterAssignments=alignScenesToChapters(handoff,scenes);
   const aerialScene=selectAerialScene(scenes,chapterAssignments,candidates);
@@ -349,9 +352,9 @@ export function buildDocumentaryScenePlan(topic: TopicBrief, scenes: TimedScene[
     const scored=pool.map(candidate => {
       const beat=candidate.beat;
       const words=tokenize(`${beat.beat_name} ${beat.narrative_purpose} ${beat.semantic_alignment_terms.join(' ')}`);
-      const stage=beat.applicable_stage_ids[0]||chapter?.applicable_production_stage_ids[0]||topic.lifecycle_stages?.[0]?.stage_id||'STAGE_01';
-      const stageData=stages.find(x=>x.stage_id===stage);
-      const env=beat.environment_ids[0] || stageData?.environment_ids[0] || topic.lifecycle_stages?.find(x=>x.stage_id===stage)?.environment_ref || topic.environments[0]?.environment_id || 'ENV_01';
+      const requestedStage=beat.applicable_stage_ids[0]||chapter?.applicable_production_stage_ids[0]||topic.lifecycle_stages?.[0]?.stage_id||'STAGE_01';
+      const resolved=applyResolvedSceneContract(topic,{number:scene.number,chapter_id:chapterId,beat_id:candidate.sourceBeatId,contract_beat_id:candidate.contractBeatId,visual_family:beat.visual_family,story_function:beat.story_function,visual_treatment:candidate.treatment,product_visibility:beat.product_visibility,stage_id:requestedStage,environment_ref:'',state:resolvePlannedState(topic,requestedStage,beat.product_visibility),showdown_role:null,energy_level:'MEDIUM',camera_platform:null,graphic_spec:null,reference_asset_ids:[],required_visible_features:[],forbidden_elements:[],continuity_requirements:[],alignment_source:'ENGINE_BEAT',alignment_claim:beat.narrative_purpose});
+      const stage=resolved.stage_id,env=resolved.environment_ref;
       const semantic=overlap(vo,words);
       const orderRange=Math.max(...pool.map(item=>item.beat.beat_order),1);
       let score=semantic*14-Math.abs((beat.beat_order/orderRange)-chapterProgress)*5;
@@ -373,7 +376,7 @@ export function buildDocumentaryScenePlan(topic: TopicBrief, scenes: TimedScene[
       if(familyRun>=Math.max(1,rhythm?.maximum_consecutive_same_visual_family??5))score-=90;
       if(environmentRun>=Math.max(1,rhythm?.maximum_consecutive_same_environment_without_new_information??6))score-=55;
       if(beat.product_visibility==='FULL'&&fullRun>=Math.max(1,rhythm?.maximum_consecutive_full_product_scenes??4))score-=70;
-      return {candidate,stage,env,score};
+      return {candidate,stage,env,score,resolved};
     }).sort((a,b)=>b.score-a.score||a.candidate.beat.beat_order-b.candidate.beat.beat_order);
     const chosen=scored[0];
     const beat=chosen.candidate.beat;
@@ -381,23 +384,20 @@ export function buildDocumentaryScenePlan(topic: TopicBrief, scenes: TimedScene[
     if(isOperational)operationalCount++;
     const showdownRole=aviationEligible?showdownRoleFor(scene,scenes.length,beat.visual_family,operationalCount):null;
     const plannedVisibility:ProductVisibility=showdownRole==='COCKPIT_IMMERSION'?'DETAIL_ONLY':beat.product_visibility;
-    const planItem:PlannedScene={
+    let planItem:PlannedScene={
+      ...chosen.resolved,
       number:scene.number, chapter_id:chapterId,
-      beat_id:chosen.candidate.sourceBeatId, visual_family:beat.visual_family,
-      story_function:beat.story_function, visual_treatment:chosen.candidate.treatment,
-      product_visibility:plannedVisibility, stage_id:chosen.stage, environment_ref:chosen.env,
-      state:resolvePlannedState(topic,chosen.stage,plannedVisibility),
+      beat_id:chosen.candidate.sourceBeatId, contract_beat_id:chosen.candidate.contractBeatId,
+      visual_treatment:chosen.candidate.treatment,
+      product_visibility:plannedVisibility,
       showdown_role:showdownRole,
       energy_level:showdownRole?SHOWDOWN_ENERGY[showdownRole]:'MEDIUM',
       camera_platform:showdownRole?SHOWDOWN_PLATFORM[showdownRole]:null,
       graphic_spec:null,
-      reference_asset_ids:[...beat.reference_asset_ids],
-      required_visible_features:[...beat.must_show],
-      forbidden_elements:[...beat.must_not_show,...beat.negative_constraints],
-      continuity_requirements:[...beat.continuity_requirements],
       alignment_source:'ENGINE_BEAT',
       alignment_claim:beat.narrative_purpose,
     };
+    planItem=applyResolvedSceneContract(topic,planItem,chosen.candidate.contractBeatId);
     planItem.graphic_spec=deriveGraphicSceneSpec(topic,scene,planItem);
     plan.push(planItem);
   }

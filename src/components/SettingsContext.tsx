@@ -11,6 +11,7 @@ const defaultSettings: Settings = {
   sceneDurationSeconds: DEFAULT_SCENE_DURATION_SECONDS,
   productionTemplate: DEFAULT_PRODUCTION_TEMPLATE,
   productionTemplateName: 'Modus Visual Production Handoff V2',
+  showProductionDiagnostics: false,
 };
 
 interface SettingsContextType {

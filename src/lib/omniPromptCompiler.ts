@@ -1,6 +1,7 @@
 import { OmniPromptSections, SceneDirection, T2VPrompt, TopicBrief } from '../types';
 import { generatedClipDuration } from './sceneDuration';
 import { countPromptWords, MAX_VIDEO_PROMPT_WORDS, VIDEO_PROMPT_COMPACTION_TARGET } from './promptLimits';
+import { resolveSceneContract, type ResolvedSceneContract } from './sceneContract';
 
 const cleanSpace = (value: unknown) => String(value ?? '').replace(/\[object Object\]/gi, '').replace(/\s+/g, ' ').trim();
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.flatMap(strings) : typeof value === 'string' ? value.split(/\s*[|;]\s*/).map(cleanSpace).filter(Boolean) : [];
@@ -72,6 +73,7 @@ const rankedUnique=(items:Array<{value:unknown;score:number}>,limit:number)=>{
 };
 
 export interface ResolvedProductionScene {
+  contract: ResolvedSceneContract;
   stage: any;
   environment: any;
   geometryModules: any[];
@@ -89,19 +91,18 @@ export interface ResolvedProductionScene {
 
 export function resolveProductionScene(topic: TopicBrief | null, direction: SceneDirection): ResolvedProductionScene {
   const handoff=(topic as any)?._production_handoff || {};
-  const stages=Array.isArray(handoff.production_stages)?handoff.production_stages:[];
-  const stage=stages.find((item:any)=>item.stage_id===direction.stage_id) || {};
-  const environments=Array.isArray(handoff.environments)?handoff.environments:[];
-  const environment=environments.find((item:any)=>item.environment_id===direction.environment_ref) || {};
-  const modules=Array.isArray(handoff.geometry_modules)?handoff.geometry_modules:[];
-  const moduleIds=[stage.geometry_control?.primary_geometry_module_id,...(stage.geometry_control?.secondary_geometry_module_ids||[])].filter(Boolean);
-  const geometryModules=modules.filter((item:any)=>moduleIds.includes(item.module_id));
-  const references=(handoff.reference_assets||[]).filter((item:any)=>(stage.visual_evidence?.reference_asset_ids||[]).includes(item.asset_id));
+  const contract=resolveSceneContract(topic,direction);
+  const stage:any=contract.stage||(handoff.production_stages||[]).find((item:any)=>item.stage_id===direction.stage_id)||{};
+  const environment:any=contract.environment||(handoff.environments||[]).find((item:any)=>item.environment_id===direction.environment_ref)||{};
+  const moduleIds=contract.geometryModuleIds.length?contract.geometryModuleIds:[stage.geometry_control?.primary_geometry_module_id,...(stage.geometry_control?.secondary_geometry_module_ids||[])].filter(Boolean);
+  const geometryModules=contract.geometryModules.length?contract.geometryModules:(handoff.geometry_modules||[]).filter((item:any)=>moduleIds.includes(item.module_id));
+  const referenceIds=contract.referenceAssetIds.length?contract.referenceAssetIds:(stage.visual_evidence?.reference_asset_ids||[]);
+  const references=contract.referenceAssets.length?contract.referenceAssets:(handoff.reference_assets||[]).filter((item:any)=>referenceIds.includes(item.asset_id));
   const transition=(handoff.stage_transitions||[]).find((item:any)=>item.from_stage_id===direction.stage_id)||{};
   const guidance=stage.camera_guidance||{};
   const stageViews=strings(guidance.preferred_views).map(normalizedCameraValue);
-  const stageScales=strings(guidance.safe_shot_scales).map(value=>mapped(normalizedCameraValue(value),scaleMap)).filter(Boolean) as string[];
-  const stageMovements=strings(guidance.preferred_camera_movements).map(value=>mapped(normalizedCameraValue(value),movementMap)).filter(Boolean) as string[];
+  const stageScales=(contract.preferredShotScales.length?contract.preferredShotScales:strings(guidance.safe_shot_scales)).map(value=>mapped(normalizedCameraValue(value),scaleMap)).filter(Boolean) as string[];
+  const stageMovements=(contract.preferredCameraMovements.length?contract.preferredCameraMovements:strings(guidance.preferred_camera_movements)).map(value=>mapped(normalizedCameraValue(value),movementMap)).filter(Boolean) as string[];
   const forbiddenMovements=strings(guidance.forbidden_camera_movements).map(normalizedCameraValue);
   const scaleInput=normalizedCameraValue(direction.camera.shot_scale);
   const lensInput=normalizedCameraValue(direction.camera.lens);
@@ -139,12 +140,12 @@ export function resolveProductionScene(topic: TopicBrief | null, direction: Scen
   if(forbiddenMovements.some(item=>movementKeywords.some(word=>item.includes(word))))behavior='locked camera';
   const speed=/^(?:none|n\/a|static|locked)?$/i.test(cleanSpace(direction.camera.movement_speed))?'':normalizedCameraValue(direction.camera.movement_speed);
   return {
-    stage,environment,geometryModules,references,transition,
+    contract,stage,environment,geometryModules,references,transition,
     identity,
     present:uniqueStrings([stage.present_now,direction.required_visible_features]),
     absent:uniqueStrings([stage.not_yet_installed,direction.forbidden_elements]),
     exposed:uniqueStrings([stage.temporarily_exposed,stage.open_interfaces,stage.unfinished_edges_or_sections]),
-    forbidden:uniqueStrings([stage.geometry_control?.negative_constraints,stage.geometry_control?.forbidden_transformations,stage.stage_actions?.flatMap((a:any)=>a.forbidden_actions||[]),environment.forbidden_elements,direction.forbidden_elements]),
+    forbidden:uniqueStrings([contract.forbiddenElements,direction.forbidden_elements]),
     confirmed:uniqueStrings([stage.visual_evidence?.confirmed_visual_details]), inferred:uniqueStrings([stage.visual_evidence?.analyst_inferred_visual_details]),
     camera:{ shotScale, lens, viewpoint, behavior, speed, movementCount:directionMovements.length, contradictions },
   };

@@ -3,6 +3,7 @@ import v2Schema from '../schemas/Modus_Visual_Production_Handoff_V2_Schema.json'
 import v2Template from '../schemas/Modus_Visual_Production_Handoff_V2_Template.json';
 import type { VisualProductionHandoffV2 } from '../types/visualProductionV2';
 import { positiveSceneDuration, v2HandoffSceneDuration } from './sceneDuration';
+import { indexVisualProductionHandoff } from './sceneContract';
 
 export type HandoffFormat='v2'|'v1'|'legacy'|'unsupported'|'invalid';
 export type HandoffStatusLabel='Valid V2'|'Valid Legacy V1'|'Invalid';
@@ -43,7 +44,7 @@ function referenceIssues(values:unknown,path:string,known:Set<string>,kind:strin
 
 export function validateV2Semantics(data:VisualProductionHandoffV2):HandoffValidationIssue[]{
   const errors:HandoffValidationIssue[]=[];
-  const modules=ids(data.geometry_modules,'module_id'),assets=ids(data.reference_assets,'asset_id'),environments=ids(data.environments,'environment_id'),stages=ids(data.production_stages,'stage_id');
+  const index=indexVisualProductionHandoff(data),modules=new Set(index.geometryModuleById.keys()),assets=new Set(index.referenceAssetById.keys()),environments=new Set(index.environmentById.keys()),stages=new Set(index.stageById.keys());
   errors.push(...duplicateIssues(data.geometry_modules,'module_id','/geometry_modules'));
   errors.push(...duplicateIssues(data.reference_assets,'asset_id','/reference_assets'));
   errors.push(...duplicateIssues(data.environments,'environment_id','/environments'));
@@ -106,6 +107,7 @@ export function validateV2Semantics(data:VisualProductionHandoffV2):HandoffValid
       errors.push(...referenceIssues(beat.applicable_stage_ids,`${beatBase}/applicable_stage_ids`,stages,'production stage'));
       errors.push(...referenceIssues(beat.environment_ids,`${beatBase}/environment_ids`,environments,'environment'));
       errors.push(...referenceIssues(beat.reference_asset_ids,`${beatBase}/reference_asset_ids`,assets,'reference asset'));
+      if(beat.generation_permission==='REFERENCE_REQUIRED'&&!beat.reference_asset_ids.length)errors.push(issue(`${beatBase}/reference_asset_ids`,'REFERENCE_REQUIRED beat must identify at least one researched reference asset.','contract'));
       const generated=beat.generation_permission==='T2V_ALLOWED'&&beat.preferred_media_routes.includes('GENERATED_T2V');
       if(!generated){
         const alternative=chapter.visual_beats.some(candidate=>candidate.beat_id!==beat.beat_id&&candidate.generation_permission==='T2V_ALLOWED'&&candidate.preferred_media_routes.includes('GENERATED_T2V')&&(candidate.story_function===beat.story_function||candidate.narrative_purpose===beat.narrative_purpose));

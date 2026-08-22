@@ -42,6 +42,10 @@ export function mergeDirectionMetadata(generated: any[], timedScenes: TimedScene
       alignment_source:plan?.alignment_source,
       alignment_confidence:plan?.alignment_confidence,
       alignment_claim:plan?.alignment_claim,
+      contract_beat_id:plan?.contract_beat_id,
+      constraint_resolver_version:plan?.constraint_resolver_version,
+      constraint_sources:plan?.constraint_sources,
+      allowed_environment_ids:plan?.allowed_environment_ids,
       stage_id: plan?.stage_id || String(item.stage_id || ''), state: plan?.state || String(item.state||'').toUpperCase().replace(/^STATE[_\s-]*/,'') as 'A'|'B'|'C',
       subject: String(item.subject || ''), product_visual_state: String(item.product_visual_state || ''),
       primary_action: String(item.primary_action || ''), supporting_motion: String(item.supporting_motion || ''),
@@ -93,6 +97,10 @@ export function validateSceneDirections(directions: unknown, timedScenes: TimedS
     if(plan&&JSON.stringify(direction.reference_asset_ids??[])!==JSON.stringify(plan.reference_asset_ids??[]))errors.push(`${label}: immutable reference evidence was modified.`);
     if(plan&&direction.alignment_source!==plan.alignment_source)errors.push(`${label}: immutable alignment source was modified.`);
     if(plan&&direction.alignment_claim!==plan.alignment_claim)errors.push(`${label}: immutable alignment claim was modified.`);
+    if(plan&&direction.contract_beat_id!==plan.contract_beat_id)errors.push(`${label}: immutable contract beat was modified.`);
+    if(plan&&direction.constraint_resolver_version!==plan.constraint_resolver_version)errors.push(`${label}: immutable contract resolver version was modified.`);
+    if(plan&&JSON.stringify(direction.constraint_sources??{})!==JSON.stringify(plan.constraint_sources??{}))errors.push(`${label}: immutable contract provenance was modified.`);
+    if(plan&&JSON.stringify(direction.allowed_environment_ids??[])!==JSON.stringify(plan.allowed_environment_ids??[]))errors.push(`${label}: immutable allowed environments were modified.`);
     if (!['A', 'B', 'C'].includes(direction.state)) errors.push(`${label}: state must be A, B, or C.`);
     requiredStrings.forEach(field => { if (!String(direction[field] || '').trim()) errors.push(`${label}: ${field} is required.`); });
     ['shot_scale', 'lens', 'angle', 'movement', 'movement_speed'].forEach(field => { if (!String(direction.camera?.[field] || '').trim()) errors.push(`${label}: camera.${field} is required.`); });

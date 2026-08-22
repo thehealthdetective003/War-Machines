@@ -5,6 +5,7 @@ import { deriveGraphicSceneSpec, resolvePlannedState } from './scenePlanner';
 import { projectOrTranscriptSceneDuration } from './sceneDuration';
 import { normalizeGenerationSession } from './generationSession';
 import { createResumableProductionSession, synchronizeProductionSession } from './productionSession';
+import { clearResolvedEnvironmentRepairs, resolveSceneContract } from './sceneContract';
 
 export type MigrationResult = { state: AppState | null; message?: string; error?: string };
 
@@ -25,7 +26,8 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     timingChanged = true;
   }
   const rawPlan = Array.isArray(raw.plannedScenes) ? raw.plannedScenes.map((item:any,index:number)=>{
-    const base={...item,state:resolvePlannedState(raw.topic,item?.stage_id,item?.product_visibility)};
+    const contract=resolveSceneContract(raw.topic,item);
+    const base={...item,state:contract.state||resolvePlannedState(raw.topic,item?.stage_id,item?.product_visibility)};
     const timed=transcription?.scenes?.find((scene:any)=>Number(scene.number)===Number(item?.number))||transcription?.scenes?.[index];
     return {...base,graphic_spec:item?.graphic_spec??(timed?deriveGraphicSceneSpec(raw.topic,timed,base):null),alignmentFingerprint:item?.alignmentFingerprint||(raw.projectSchemaVersion<14?'legacy-preserved-v13':undefined)};
   }) : [];
@@ -50,7 +52,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
   const planByNumber = new Map(rawPlan.map((item:any)=>[Number(item.number),item]));
   const repairedDirections = planValid ? rawDirections.map((item:any)=>{
     const plan:any=planByNumber.get(Number(item?.number));
-    return plan ? {...item,generation_duration_seconds:sceneDuration,chapter_id:plan.chapter_id,beat_id:plan.beat_id,visual_family:plan.visual_family,story_function:plan.story_function,visual_treatment:plan.visual_treatment,product_visibility:plan.product_visibility,showdown_role:plan.showdown_role,energy_level:plan.energy_level,camera_platform:plan.camera_platform,graphic_spec:plan.graphic_spec,reference_asset_ids:plan.reference_asset_ids,alignment_source:plan.alignment_source,alignment_confidence:plan.alignment_confidence,alignment_claim:plan.alignment_claim,stage_id:plan.stage_id,environment_ref:plan.environment_ref,state:plan.state,required_visible_features:ensureRequiredVisibleFeatures(item,plan),forbidden_elements:[...new Set([...(plan.forbidden_elements||[]),...(item.forbidden_elements||[])])],operationFingerprint:item.operationFingerprint||(raw.projectSchemaVersion<14?'legacy-preserved-v13':undefined)} : item;
+    return plan ? {...item,generation_duration_seconds:sceneDuration,chapter_id:plan.chapter_id,beat_id:plan.beat_id,contract_beat_id:plan.contract_beat_id,constraint_resolver_version:plan.constraint_resolver_version,constraint_sources:plan.constraint_sources,allowed_environment_ids:plan.allowed_environment_ids,visual_family:plan.visual_family,story_function:plan.story_function,visual_treatment:plan.visual_treatment,product_visibility:plan.product_visibility,showdown_role:plan.showdown_role,energy_level:plan.energy_level,camera_platform:plan.camera_platform,graphic_spec:plan.graphic_spec,reference_asset_ids:plan.reference_asset_ids,alignment_source:plan.alignment_source,alignment_confidence:plan.alignment_confidence,alignment_claim:plan.alignment_claim,stage_id:plan.stage_id,environment_ref:plan.environment_ref,state:plan.state,required_visible_features:ensureRequiredVisibleFeatures(item,plan),forbidden_elements:[...new Set([...(plan.forbidden_elements||[]),...(item.forbidden_elements||[])])],operationFingerprint:item.operationFingerprint||(raw.projectSchemaVersion<14?'legacy-preserved-v13':undefined)} : item;
   }) : rawDirections;
   const directionPrefixValid = planValid && !!transcription && repairedDirections.length <= transcription.scenes.length&&validateSceneDirections(repairedDirections,transcription.scenes,rawPlan,sceneDuration,{allowPartial:true}).length===0;
   const directionsValid = directionPrefixValid && repairedDirections.length === transcription.scenes.length;
@@ -86,7 +88,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     generationSession.completedScenes = compatiblePrompts.length;
   }
   const phase = productionComplete||generationSession.status==='deferred_repairs'?3:(raw.topic&&transcription?2:1);
-  const state: AppState = {
+  let state: AppState = {
     ...initial,
     id: raw.id,
     projectName: raw.projectName || initial.projectName,
@@ -103,12 +105,20 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     projectSchemaVersion: 16,
   };
   generationSession=synchronizeProductionSession(generationSession,state);state.generationSession=productionComplete?{...generationSession,status:generationSession.status==='complete_with_warnings'?'complete_with_warnings':'complete',operation:'COMPLETE'}:generationSession;
+  const environmentRepairMigration=clearResolvedEnvironmentRepairs(state);state=environmentRepairMigration.state;
+  if(environmentRepairMigration.clearedSceneNumbers.length){
+    const allOutputs=!!transcription&&state.sceneDirections.length===transcription.scenes.length&&state.visualPrompts.length===transcription.scenes.length;
+    state.generationSession=synchronizeProductionSession(state.generationSession,state);
+    if(!state.generationSession.deferredRepairs.length)state={...state,phase:allOutputs?3:2,generationSession:{...state.generationSession,status:allOutputs?(state.generationSession.validationWarnings.length?'complete_with_warnings':'complete'):'paused',operation:allOutputs?'COMPLETE':state.generationSession.operation,pauseReason:allOutputs?null:state.generationSession.pauseReason,error:null}};
+  }
   const reset = timingChanged || imageMode || (!directionPrefixValid && repairedDirections.length > 0) || (rawPrompts.length > 0 && !preserveOutput);
   const planningUpgrade = raw.projectSchemaVersion < 12 && rawPlan.length > 0;
   const resumableDirections = directionPrefixValid && (repairedDirections.length < (transcription?.scenes.length || 0)||compatiblePrompts.length<repairedDirections.length);
-  return { state, message: planningUpgrade
+  const baseMessage=planningUpgrade
     ? 'Project content and transcript were preserved. Phase 2 output was reset for global chapter, lifecycle, and VO/visual realignment.'
     : resumableDirections ? `Restored durable production work: ${repairedDirections.length} directions and ${compatiblePrompts.length} prompts. Resume from ${state.generationSession.operation.replaceAll('_',' ')}.${legacyVeoProject?' Future generation now uses Omni Flash.':''}`
     : legacyVeoProject ? 'Legacy project imported safely. Compatible historical prompts were preserved; future generation uses Omni Flash.'
-    : reset && raw.topic ? 'Project migrated to the timestamped T2V pipeline; incompatible downstream output was reset.' : undefined };
+    : reset && raw.topic ? 'Project migrated to the timestamped T2V pipeline; incompatible downstream output was reset.' : undefined;
+  const repairMessage=environmentRepairMigration.clearedSceneNumbers.length?`Cleared ${environmentRepairMigration.clearedSceneNumbers.length} obsolete environment repair${environmentRepairMigration.clearedSceneNumbers.length===1?'':'s'} locally without regeneration.`:undefined;
+  return {state,message:[repairMessage,baseMessage].filter(Boolean).join(' ')||undefined};
 }

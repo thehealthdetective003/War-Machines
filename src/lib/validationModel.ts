@@ -2,6 +2,7 @@ import type { PlannedScene, SceneDirection, TimedScene, TopicBrief, ValidationFi
 import type { V2ProductionStage, V2VisualBeat, VisualProductionHandoffV2 } from '../types/visualProductionV2';
 import { directionSemanticIssues } from './directionSemantics';
 import { validateSceneDirections } from './sceneDirections';
+import { resolveSceneContract, sceneEnvironmentAllowed, v2HandoffFor } from './sceneContract';
 
 export const MAX_SEMANTIC_CORRECTION_ATTEMPTS=1;
 export const MAX_TARGETED_BLOCKING_REPAIR_ATTEMPTS=2;
@@ -11,7 +12,7 @@ export const blockingFindings=(findings:ValidationFinding[])=>findings.filter(it
 export const repairableFindings=(findings:ValidationFinding[])=>findings.filter(item=>item.severity==='REPAIRABLE_ERROR');
 export const warningFindings=(findings:ValidationFinding[])=>findings.filter(item=>item.severity==='WARNING');
 
-const handoffFor=(topic:TopicBrief|null):VisualProductionHandoffV2|null=>{const value=(topic as any)?._production_handoff;return value?.schema?.version==='2.0.0'?value as VisualProductionHandoffV2:null;};
+const handoffFor=(topic:TopicBrief|null):VisualProductionHandoffV2|null=>v2HandoffFor(topic);
 const beats=(handoff:VisualProductionHandoffV2)=>handoff.visual_story_plan.chapters.flatMap(chapter=>chapter.visual_beats);
 const finding=(sceneNumber:number,code:string,severity:ValidationSeverity,message:string,details:Partial<ValidationFinding>={}):ValidationFinding=>({sceneNumber,code,severity,message,...details});
 const normalized=(value:string)=>value.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -23,32 +24,29 @@ const beatFor=(handoff:VisualProductionHandoffV2,plan:PlannedScene)=>beats(hando
 
 export function structuredPlanFindings(topic:TopicBrief|null,plan:PlannedScene):ValidationFinding[]{
   const handoff=handoffFor(topic);if(!handoff)return [];
-  const result:ValidationFinding[]=[],stage=stageFor(handoff,plan),beat=beatFor(handoff,plan),environment=handoff.environments.find(item=>item.environment_id===plan.environment_ref);
+  const contract=resolveSceneContract(topic,plan),result:ValidationFinding[]=[],stage=contract.stage,beat=contract.beat,environment=contract.environment;
   if(!stage)result.push(finding(plan.number,'UNKNOWN_STAGE_ID','BLOCKING_ERROR',`Assigned stage ${plan.stage_id} does not exist.`,{structuredRuleSource:'production_stages',expected:'existing stage_id',actual:plan.stage_id,repairHint:'Select an Engine-defined stage.'}));
   if(plan.alignment_source==='ENGINE_BEAT'&&!beat)result.push(finding(plan.number,'UNKNOWN_BEAT_ID','BLOCKING_ERROR',`Assigned beat ${plan.beat_id} does not exist.`,{structuredRuleSource:'visual_story_plan.chapters[].visual_beats',expected:'existing beat_id',actual:plan.beat_id,repairHint:'Select an Engine-defined generated beat.'}));
   if(!environment)result.push(finding(plan.number,'UNKNOWN_ENVIRONMENT_ID','BLOCKING_ERROR',`Assigned environment ${plan.environment_ref} does not exist.`,{structuredRuleSource:'environments',expected:'existing environment_id',actual:plan.environment_ref,repairHint:'Use an Engine-defined environment.'}));
   if(beat){
     if(beat.generation_permission!=='T2V_ALLOWED'||!beat.preferred_media_routes.includes('GENERATED_T2V'))result.push(finding(plan.number,'GENERATION_ROUTE_FORBIDDEN','BLOCKING_ERROR','The assigned beat does not permit generated T2V.',{structuredRuleSource:`${beat.beat_id}.generation_permission/preferred_media_routes`,expected:'T2V_ALLOWED + GENERATED_T2V',actual:`${beat.generation_permission} + ${beat.preferred_media_routes.join(', ')}`,repairHint:'Use an Engine-authorized generated alternative.'}));
     if(beat.applicable_stage_ids.length&&!beat.applicable_stage_ids.includes(plan.stage_id))result.push(finding(plan.number,'BEAT_STAGE_MISMATCH','BLOCKING_ERROR',`Beat ${beat.beat_id} does not allow stage ${plan.stage_id}.`,{structuredRuleSource:`${beat.beat_id}.applicable_stage_ids`,expected:beat.applicable_stage_ids,actual:plan.stage_id,repairHint:'Use one of the beat\'s applicable stages.'}));
-    if(beat.required_product_state_code&&beat.required_product_state_code!==plan.state)result.push(finding(plan.number,'BEAT_STATE_MISMATCH','BLOCKING_ERROR','The planned state conflicts with the beat-required state.',{structuredRuleSource:`${beat.beat_id}.required_product_state_code`,expected:beat.required_product_state_code,actual:plan.state,repairHint:'Use the beat-required state.'}));
-    if(beat.environment_ids.length&&!beat.environment_ids.includes(plan.environment_ref))result.push(finding(plan.number,'BEAT_ENVIRONMENT_MISMATCH','BLOCKING_ERROR','The assigned environment is not allowed by the beat.',{structuredRuleSource:`${beat.beat_id}.environment_ids`,expected:beat.environment_ids,actual:plan.environment_ref,repairHint:'Use an environment authorized by the beat.'}));
+    if(contract.state&&contract.state!==plan.state)result.push(finding(plan.number,'SCENE_STATE_MISMATCH','BLOCKING_ERROR','The planned state conflicts with the authoritative scene contract.',{structuredRuleSource:contract.resolutionSources.state==='BEAT'?`${beat.beat_id}.required_product_state_code`:`${stage?.stage_id}.product_state_code`,expected:contract.state,actual:plan.state,repairHint:'Use the state resolved from the assigned beat or stage fallback.'}));
   }
-  if(stage){
-    if(stage.product_state_code!==plan.state)result.push(finding(plan.number,'STAGE_STATE_MISMATCH','BLOCKING_ERROR','The planned state conflicts with the assigned stage.',{structuredRuleSource:`${stage.stage_id}.product_state_code`,expected:stage.product_state_code,actual:plan.state,repairHint:'Copy the structured stage state.'}));
-    if(stage.environment_ids.length&&!stage.environment_ids.includes(plan.environment_ref))result.push(finding(plan.number,'STAGE_ENVIRONMENT_MISMATCH','BLOCKING_ERROR','The assigned environment is not allowed by the stage.',{structuredRuleSource:`${stage.stage_id}.environment_ids`,expected:stage.environment_ids,actual:plan.environment_ref,repairHint:'Use an environment authorized by the stage.'}));
-  }
+  if(!beat&&stage&&contract.state&&contract.state!==plan.state)result.push(finding(plan.number,'SCENE_STATE_MISMATCH','BLOCKING_ERROR','The planned state conflicts with the authoritative scene contract.',{structuredRuleSource:`${stage.stage_id}.product_state_code`,expected:contract.state,actual:plan.state,repairHint:'Use the stage fallback state.'}));
+  if(contract.allowedEnvironmentIds.length&&!sceneEnvironmentAllowed(contract,plan.environment_ref))result.push(finding(plan.number,'SCENE_ENVIRONMENT_NOT_ALLOWED','BLOCKING_ERROR',`Environment ${plan.environment_ref} is not allowed by the resolved scene contract.`,{structuredRuleSource:contract.resolutionSources.environment==='BEAT'?`${beat?.beat_id}.environment_ids`:`${stage?.stage_id}.environment_ids`,expected:contract.allowedEnvironmentIds,actual:plan.environment_ref,repairHint:`Use one of the ${contract.resolutionSources.environment.toLowerCase()}-authorized environments.`,constraintSource:contract.resolutionSources.environment,allowedEnvironmentIds:[...contract.allowedEnvironmentIds],actualEnvironmentId:plan.environment_ref,beatId:contract.beatId,stageId:contract.stageId}));
   return result;
 }
 
 export function structuredDirectionFindings(topic:TopicBrief|null,direction:SceneDirection,scene:TimedScene,plan:PlannedScene,generationDurationSeconds:number):ValidationFinding[]{
   const structural=validateSceneDirections([direction],[scene],[plan],generationDurationSeconds).map(message=>finding(direction.number,'MALFORMED_OR_MUTATED_DIRECTION','BLOCKING_ERROR',message,{structuredRuleSource:'scene direction contract',expected:'complete immutable direction fields',actual:message,repairHint:'Return every required creative field without modifying authoritative metadata.'}));
   const handoff=handoffFor(topic);if(!handoff)return [...structuredPlanFindings(topic,plan),...structural];
-  const stage=stageFor(handoff,plan),beat=beatFor(handoff,plan),text=creativeText(direction),result=[...structuredPlanFindings(topic,plan),...structural];if(!stage)return result;
+  const contract=resolveSceneContract(topic,plan),stage=contract.stage,beat=contract.beat,text=creativeText(direction),result=[...structuredPlanFindings(topic,plan),...structural];if(!stage)return result;
   stage.not_yet_installed.forEach(component=>{if(explicitlyShows(text,component))result.push(finding(direction.number,'COMPONENT_PRESENT_TOO_EARLY','BLOCKING_ERROR',`${component} appears before its structured installation stage.`,{structuredRuleSource:`${stage.stage_id}.not_yet_installed`,expected:`${component} absent`,actual:`Direction explicitly includes ${component}`,repairHint:`Remove ${component} and preserve only present_now components.`}));});
-  const forbidden=[...(beat?.must_not_show||[]),...stage.geometry_control.forbidden_transformations,...stage.geometry_control.negative_constraints];
+  const forbidden=contract.forbiddenElements;
   forbidden.forEach(rule=>{if(explicitlyShows(text,rule))result.push(finding(direction.number,'EXPLICIT_FORBIDDEN_VISUAL','BLOCKING_ERROR',`Direction includes an explicitly forbidden visual: ${rule}.`,{structuredRuleSource:beat?.must_not_show.includes(rule)?`${beat.beat_id}.must_not_show`:`${stage.stage_id}.geometry_control`,expected:`${rule} absent`,actual:`Direction explicitly includes ${rule}`,repairHint:`Remove the prohibited visual while retaining the assigned action.`}));});
   handoff.product.visually_similar_products_to_avoid.forEach(product=>{if(explicitlyMentions(text,product))result.push(finding(direction.number,'WRONG_PRODUCT_OR_VARIANT','BLOCKING_ERROR',`Direction explicitly names prohibited substitute ${product}.`,{structuredRuleSource:'product.visually_similar_products_to_avoid',expected:handoff.product.exact_variant||handoff.product.official_name,actual:product,repairHint:'Use the exact authoritative product identity.'}));});
-  const environment=handoff.environments.find(item=>item.environment_id===plan.environment_ref),exactName=environment?.exact_facility_name_if_verified?.trim();
+  const environment=contract.environment,exactName=environment?.exact_facility_name_if_verified?.trim();
   if(exactName&&explicitlyMentions(text,exactName)&&(!beat||!beat.exact_factory_claim_allowed))result.push(finding(direction.number,'EXACT_FACILITY_CLAIM_FORBIDDEN','BLOCKING_ERROR','Direction makes an exact facility claim where only contextual visuals are allowed.',{structuredRuleSource:beat?`${beat.beat_id}.exact_factory_claim_allowed`:'VO_FALLBACK facility policy',expected:'generic/contextual facility',actual:exactName,repairHint:'Remove the exact facility identity.'}));
   return result;
 }

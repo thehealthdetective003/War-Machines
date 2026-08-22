@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from 'next-themes';
 import { motion, AnimatePresence } from 'motion/react';
-import { Moon, Sun, CheckCircle2, FilePlus, FolderOpen, AlertCircle, FileUp, FileDown, Wrench, Boxes, Factory, ClipboardCheck, CircleDot, Layers3 } from 'lucide-react';
+import { Moon, Sun, CheckCircle2, FilePlus, FolderOpen, AlertCircle, FileUp, FileDown, Wrench, CircleDot, Layers3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,16 +25,11 @@ import { migrateProject, projectSceneDuration } from './lib/projectMigration';
 import { idleGenerationSession } from './lib/generationSession';
 import { validateProductionReadiness } from './lib/setupValidation';
 import { isReviewAvailable, isWorkflowStageComplete } from './lib/workflowState';
+import { productionOperationLabel, WORKFLOW_STAGES } from './lib/uiPresentation';
 
 const Phase1Topic = lazy(() => import('./components/Phase1Topic').then(module => ({ default: module.Phase1Topic })));
 const ProductionPipeline = lazy(() => import('./components/ProductionPipeline').then(module => ({ default: module.ProductionPipeline })));
 const Phase4Visuals = lazy(() => import('./components/Phase4Visuals').then(module => ({ default: module.Phase4Visuals })));
-
-const PHASES = [
-  { id: 1, label: 'Setup', eyebrow: 'Inputs', description: 'Validate the handoff and transcription', icon: Boxes, tone: 'violet' },
-  { id: 2, label: 'Production', eyebrow: 'Automatic pipeline', description: 'Plan, direct, generate, validate, and save', icon: Factory, tone: 'cyan' },
-  { id: 3, label: 'Review & Export', eyebrow: 'Delivery', description: 'Review completed prompts and export', icon: ClipboardCheck, tone: 'amber' },
-];
 
 function WorkspaceLoader({ label = 'Preparing your project workspace' }: { label?: string }) {
   return (
@@ -84,7 +79,7 @@ export default function App() {
   const [recovery, setRecovery] = useState<{project:AppState;checkpoints:ProjectCheckpoint[]}|null>(null);
   
   const [state, setState] = useState<AppState>(INITIAL_STATE);
-  const activePhase = PHASES.find((p) => p.id === state.phase);
+  const activePhase = WORKFLOW_STAGES.find((p) => p.id === state.phase);
   currentStateRef.current=state;
   const isDirty = state !== savedStateRef.current;
   useEffect(() => {
@@ -264,7 +259,6 @@ export default function App() {
     URL.revokeObjectURL(url);
   }, []);
   const isPhaseComplete=(phaseId:number)=>isWorkflowStageComplete(state,phaseId as PhaseType);
-  const completedPhaseCount = PHASES.filter(phase => isPhaseComplete(phase.id)).length;
   if (!isLoaded || !isHydrated) {
     return <div className="app-shell min-h-screen bg-background text-foreground"><WorkspaceLoader /></div>;
   }
@@ -322,7 +316,7 @@ export default function App() {
           <DialogHeader>
             <DialogTitle>Recover interrupted generation</DialogTitle>
             <DialogDescription>
-              Batch {recovery?.project.generationSession.currentBatch ?? 0} stopped at {recovery?.project.generationSession.operation?.replaceAll('_',' ') || 'an unfinished operation'} with {recovery?.project.generationSession.completedScenes ?? 0} prompts durably complete
+              Batch {recovery?.project.generationSession.currentBatch ?? 0} stopped while {productionOperationLabel(recovery?.project.generationSession.operation)} with {recovery?.project.generationSession.completedScenes ?? 0} prompts durably complete
               {recovery?.project.generationSession.lastCommittedAt ? ` and was saved ${new Date(recovery.project.generationSession.lastCommittedAt).toLocaleString()}` : ''}.
             </DialogDescription>
           </DialogHeader>
@@ -355,7 +349,7 @@ export default function App() {
       </Dialog>
       {/* Storage Failure Banner */}
       {storageError && (
-        <div className="bg-red-600 text-white p-3 text-sm font-bold flex items-center justify-center gap-4 z-50">
+        <div className="z-50 flex flex-col items-stretch justify-center gap-2 bg-destructive p-3 text-sm font-semibold text-destructive-foreground sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4" />
             <span>PROJECT STORAGE PAUSED: {storageError}</span>
@@ -419,7 +413,7 @@ export default function App() {
               id="load-project-file-header"
               variant="outline" 
               size="sm" 
-              className="hidden xl:flex text-xs font-mono border-primary/20 text-primary hover:bg-primary/10 h-9 relative animate-fade-in rounded-xl"
+              className="hidden xl:flex text-xs border-border text-muted-foreground hover:text-foreground h-9 relative rounded-lg"
             >
               <FileUp className="h-4 w-4 mr-1.5" />
               LOAD PROJECT
@@ -477,7 +471,7 @@ export default function App() {
                 downloadState(state);
                 toast.success("Project JSON downloaded successfully");
               }} 
-              className="hidden xl:flex text-xs font-mono border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 h-9 rounded-xl"
+              className="hidden xl:flex text-xs border-border text-muted-foreground hover:text-foreground h-9 rounded-lg"
             >
               <FileDown className="h-4 w-4 mr-1.5" />
               SAVE PROJECT
@@ -501,7 +495,7 @@ export default function App() {
               variant="ghost" 
               size="icon" 
               onClick={() => setIsSettingsOpen(true)} 
-              className="h-9 w-9 text-primary hover:text-primary hover:bg-primary/10 rounded-xl border border-primary/15"
+              className="h-9 w-9 text-primary hover:text-primary hover:bg-primary/10 rounded-lg border border-primary/20"
               title="Factory Toolbox"
               aria-label="Open factory toolbox and settings"
             >
@@ -512,41 +506,28 @@ export default function App() {
       </header>
       {/* Main Content */}
       <main className="flex-1 mx-auto w-full max-w-[1600px] px-4 sm:px-6 py-5 sm:py-7">
-        <div className="grid lg:grid-cols-[270px_minmax(0,1fr)] gap-5 xl:gap-7 items-start">
-          <aside className="lg:sticky lg:top-[96px] space-y-4">
+        <div className="grid lg:grid-cols-[210px_minmax(0,1fr)] gap-4 xl:gap-6 items-start">
+          <aside className="lg:sticky lg:top-[92px]">
             <div className="workflow-panel">
               <button onClick={() => setIsStepperOpen(open => !open)} className="lg:hidden w-full flex items-center justify-between p-4" aria-expanded={isStepperOpen} aria-controls="production-workflow-steps">
-                <div className="text-left"><div className="eyebrow">Production workflow</div><div className="font-bold mt-1">Stage {activePhase?.id}: {activePhase?.label}</div></div>
+                <div className="text-left"><div className="eyebrow">Workflow</div><div className="font-semibold mt-1">{activePhase?.label}</div></div>
                 <span className={`transition-transform ${isStepperOpen ? 'rotate-180' : ''}`}><svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M2 4.5L6 8.5L10 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
               </button>
-              <div className="hidden lg:block p-5 pb-3">
-                <div className="eyebrow">Production workflow</div>
-                <div className="flex items-end justify-between mt-2"><span className="text-2xl font-extrabold">{completedPhaseCount}<span className="text-muted-foreground/50">/3</span></span><span className="text-[11px] text-muted-foreground">stages ready</span></div>
-                <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full workflow-progress" style={{width:`${(completedPhaseCount/3)*100}%`}} /></div>
-              </div>
-              <div id="production-workflow-steps" className={`${isStepperOpen ? 'block' : 'hidden'} lg:block border-t border-border/50 p-2.5`}>
-                {PHASES.map((phase) => {
-                  const PhaseIcon = phase.icon;
+              <div className="hidden lg:block px-4 pb-2 pt-4"><div className="eyebrow">Workflow</div></div>
+              <div id="production-workflow-steps" className={`${isStepperOpen ? 'block' : 'hidden'} lg:block border-t border-border/50 p-2`}>
+                {WORKFLOW_STAGES.map((phase) => {
                   const isActive = state.phase === phase.id;
                   const completed = isPhaseComplete(phase.id);
                   const productionRunning=state.phase===2&&state.generationSession.status==='running';
                   const isAvailable = phase.id === 1 ? !productionRunning : phase.id === 2 ? validateProductionReadiness(state).ready&&(state.phase===2||state.generationSession.status!=='idle') : isReviewAvailable(state);
                   const unavailableReason = phase.id === 2 ? 'Validate both Setup inputs first.' : 'Complete the automatic production pipeline first.';
-                  return <button key={phase.id} data-tone={phase.tone} disabled={!isAvailable} aria-current={isActive ? 'step' : undefined} title={isAvailable ? phase.description : unavailableReason} onClick={() => setState(s => ({...s,phase:phase.id as PhaseType}))} className={`phase-nav-item ${isActive ? 'is-active' : ''}`}>
-                    <span className="phase-nav-icon"><PhaseIcon className="h-[18px] w-[18px]" /></span>
-                    <span className="min-w-0 flex-1 text-left"><span className="block text-[10px] uppercase tracking-[0.16em] text-muted-foreground">0{phase.id} · {phase.eyebrow}</span><span className="block font-semibold mt-0.5">{phase.label}</span><span className="block text-[11px] text-muted-foreground mt-1 truncate">{phase.description}</span></span>
+                  return <button key={phase.id} disabled={!isAvailable} aria-current={isActive ? 'step' : undefined} title={isAvailable ? phase.description : unavailableReason} onClick={() => setState(s => ({...s,phase:phase.id as PhaseType}))} className={`phase-nav-item ${isActive ? 'is-active' : ''}`}>
+                    <span className="phase-nav-number">0{phase.id}</span>
+                    <span className="min-w-0 flex-1 text-left"><span className="block text-sm font-semibold">{phase.label}</span></span>
                     {completed ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : isActive ? <CircleDot className="h-4 w-4 text-primary" /> : null}
                   </button>;
                 })}
               </div>
-            </div>
-            <div className="hidden lg:block rounded-2xl border border-border/60 bg-card/60 p-4 shadow-sm">
-              <div className="eyebrow">Project snapshot</div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className="metric-tile"><span>Scenes</span><strong>{state.voiceoverTranscription?.scenes.length || '—'}</strong></div>
-                <div className="metric-tile"><span>Prompts</span><strong>{state.visualPrompts.length || '—'}</strong></div>
-              </div>
-              <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground"><span>Clip duration</span><span className="font-mono font-bold text-foreground">{settings.sceneDurationSeconds}s</span></div>
             </div>
           </aside>
 
@@ -561,15 +542,15 @@ export default function App() {
               transition={{ duration: 0.3 }}
               className="w-full"
             >
-              <Card className="workspace-card border border-border/60 bg-card/90 shadow-xl shadow-slate-950/5 dark:shadow-black/20 rounded-3xl relative overflow-hidden gap-0 py-0">
-                <CardHeader className={`workspace-header phase-tone-${activePhase?.id} border-b border-border/50 py-6 sm:py-7 px-5 sm:px-8`}>
+              <Card className="workspace-card border border-border/70 bg-card rounded-2xl relative overflow-hidden gap-0 py-0">
+                <CardHeader className="workspace-header border-b border-border/60 px-5 py-4 sm:px-7 sm:py-5">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="space-y-2">
-                      <div className="eyebrow">Stage 0{activePhase?.id} · {activePhase?.eyebrow}</div>
-                      <CardTitle className="text-2xl sm:text-3xl font-extrabold tracking-[-0.03em] flex items-center gap-3">
+                    <div className="space-y-1">
+                      <div className="eyebrow">0{activePhase?.id}</div>
+                      <CardTitle className="text-xl sm:text-2xl font-bold tracking-[-0.02em] flex items-center gap-3">
                         <span>{activePhase?.label}</span>
                       </CardTitle>
-                      <CardDescription className="text-sm text-muted-foreground max-w-xl">
+                      <CardDescription className="text-xs text-muted-foreground max-w-xl">
                         {activePhase?.description}
                       </CardDescription>
                     </div>

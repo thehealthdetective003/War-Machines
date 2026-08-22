@@ -55,7 +55,7 @@ export function SettingsPanel({ state, setState, open, onOpenChange }: SettingsP
       <SheetContent id="toolbox-sidebar" className="bg-card border-l border-border/60 w-[440px] max-w-full p-0 flex flex-col text-foreground" showCloseButton={false}>
         
         {/* Header */}
-        <SheetHeader className="p-6 border-b border-border/60 bg-gradient-to-br from-primary/10 via-transparent to-cyan-500/5">
+        <SheetHeader className="p-6 border-b border-border/60 bg-muted/20">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <SheetTitle className="text-base font-extrabold tracking-tight text-foreground flex items-center gap-2">
@@ -127,44 +127,15 @@ export function SettingsPanel({ state, setState, open, onOpenChange }: SettingsP
                 </SelectContent>
               </Select>
             </div>
+            <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-border/60 bg-background/45 p-3.5 focus-within:ring-2 focus-within:ring-primary/40">
+              <span><span className="block text-xs font-semibold">Show production diagnostics</span><span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">Reveal raw JSON, internal IDs, validator codes, fingerprints, and operation details.</span></span>
+              <input type="checkbox" checked={settings.showProductionDiagnostics} onChange={event=>setSettings(previous=>({...previous,showProductionDiagnostics:event.target.checked}))} className="mt-0.5 h-4 w-4 shrink-0 accent-primary"/>
+            </label>
           </div>
-
-          {/* Section: Timeline Calibration */}
-          <div className="space-y-4">
-            <div className="border-b border-border/10 pb-2">
-              <span className="text-[10px] text-muted-foreground tracking-widest uppercase font-bold flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" />
-                02 / TIMELINE CALIBRATION
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
-                  BASE SCENE DURATION
-                </Label>
-                <Input 
-                  type="text" 
-                  readOnly 
-                  value={`${settings.sceneDurationSeconds} SECS`}
-                  className="bg-muted/20 border-border/40 font-mono text-xs text-foreground select-none cursor-default h-9"
-                />
-              </div>
-
-            </div>
-
-            <div className="p-3.5 content-panel">
-              <p className="text-[10px] text-muted-foreground leading-relaxed uppercase">
-                Base clips follow the global {settings.sceneDurationSeconds}-second timing. Production runs automatically in semantic batches targeting 8 scenes, normally 6–10 at natural boundaries.
-              </p>
-            </div>
-          </div>
-
-          {/* Section: Global Negative Prompts Defaults Removed */}
 
           <div className="space-y-4">
             <div className="border-b border-border/10 pb-2">
-              <span className="text-[10px] text-muted-foreground tracking-widest uppercase font-bold">03 / VO TIMING</span>
+              <span className="text-[10px] text-muted-foreground tracking-widest uppercase font-bold flex items-center gap-1.5"><Clock className="h-3.5 w-3.5"/>02 / TIMELINE</span>
             </div>
             <div className="grid grid-cols-1 gap-3">
               <div className="space-y-1.5">
@@ -185,11 +156,11 @@ export function SettingsPanel({ state, setState, open, onOpenChange }: SettingsP
             <p className="text-[10px] text-muted-foreground leading-relaxed normal-case">Enter any positive clip duration. V2 handoffs synchronize this value automatically. Changing it re-splits existing timestamps and clears generated downstream output.</p>
           </div>
 
-          <div className="space-y-4">
+          {settings.showProductionDiagnostics&&<div className="space-y-4">
             <div className="border-b border-border/10 pb-2">
               <span className="text-[10px] text-muted-foreground tracking-widest uppercase font-bold flex items-center gap-1.5">
                 <FileUp className="w-3.5 h-3.5" />
-                04 / PRODUCTION JSON TEMPLATE
+                03 / PRODUCTION JSON TEMPLATE
               </span>
             </div>
             <div className="space-y-3 content-panel p-4">
@@ -274,7 +245,7 @@ export function SettingsPanel({ state, setState, open, onOpenChange }: SettingsP
                 </div>
               )}
             </div>
-          </div>
+          </div>}
 
         </div>
 

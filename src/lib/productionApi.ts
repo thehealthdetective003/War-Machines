@@ -3,7 +3,7 @@ import type { AlignmentRequestGroup, VisualAlignmentSelection } from './visualAl
 import { validateAlignmentSelections } from './visualAlignment';
 import { mergeDirectionMetadata } from './sceneDirections';
 import { blockingFindings, repairableFindings, semanticDirectionFindings, structuredDirectionFindings, warningFindings } from './validationModel';
-import { buildFocusedProductionContext } from './omniPromptContext';
+import { buildFocusedProductionContext, buildLegacyFocusedProductionContext } from './omniPromptContext';
 import { ALIGNMENT_INSTRUCTION_VERSION, composeAlignmentInstruction, composeDirectionInstruction, DIRECTION_INSTRUCTION_VERSION } from './productionInstructions';
 import { isReusableFingerprint, operationFingerprint } from './operationFingerprint';
 
@@ -33,6 +33,11 @@ export function directionOperationFingerprint(state:Pick<AppState,'topic'>,model
   return operationFingerprint('direction',DIRECTION_INSTRUCTION_VERSION,{model,scene,plan,focusedContext,persistentContext,instruction:composeDirectionInstruction([plan],`${(state.topic as any)?._production_handoff?.product?.product_class||''} ${state.topic?.topic?.product||''}`)});
 }
 
+function legacyDirectionOperationFingerprint(state:Pick<AppState,'topic'>,model:string,scene:TimedScene,plan:PlannedScene,persistentContext:ProductionContext|null):string{
+  const focusedContext=buildLegacyFocusedProductionContext(state.topic,[plan]);
+  return operationFingerprint('direction',DIRECTION_INSTRUCTION_VERSION,{model,scene,plan,focusedContext,persistentContext,instruction:composeDirectionInstruction([plan],`${(state.topic as any)?._production_handoff?.product?.product_class||''} ${state.topic?.topic?.product||''}`)});
+}
+
 export function partitionDirectionResponse(raw:unknown,targetScenes:TimedScene[],targetPlan:PlannedScene[],generationDurationSeconds:number,fingerprints:Map<number,string>,options:{topic?:TopicBrief|null;afterRepair?:boolean}={}):{accepted:SceneDirection[];failed:ItemFailure[];warnings:ValidationFinding[]}{
   const items=Array.isArray(raw)?raw:[],accepted:SceneDirection[]=[],failed:ItemFailure[]=[],warnings:ValidationFinding[]=[];
   targetScenes.forEach(scene=>{
@@ -49,6 +54,6 @@ export function partitionDirectionResponse(raw:unknown,targetScenes:TimedScene[]
 
 export function partitionReusableDirections(existing:SceneDirection[],targetScenes:TimedScene[],targetPlan:PlannedScene[],state:Pick<AppState,'topic'>,model:string,persistentContext:ProductionContext|null){
   const planByNumber=new Map(targetPlan.map(plan=>[plan.number,plan])),sceneByNumber=new Map(targetScenes.map(scene=>[scene.number,scene])),expected=new Map(targetScenes.map(scene=>[scene.number,directionOperationFingerprint(state,model,scene,planByNumber.get(scene.number)!,persistentContext)])),warnings:ValidationFinding[]=[];
-  const reusable=existing.filter(direction=>{const scene=sceneByNumber.get(direction.number),plan=planByNumber.get(direction.number);if(!scene||!plan||!isReusableFingerprint(direction.operationFingerprint,expected.get(direction.number)!))return false;const structured=structuredDirectionFindings(state.topic,direction,scene,plan,direction.generation_duration_seconds);if(blockingFindings(structured).length)return false;warnings.push(...semanticDirectionFindings(direction,true));return true;});
+  const reusable=existing.filter(direction=>{const scene=sceneByNumber.get(direction.number),plan=planByNumber.get(direction.number);if(!scene||!plan)return false;const current=isReusableFingerprint(direction.operationFingerprint,expected.get(direction.number)!),legacy=isReusableFingerprint(direction.operationFingerprint,legacyDirectionOperationFingerprint(state,model,scene,plan,persistentContext));if(!current&&!legacy)return false;const structured=structuredDirectionFindings(state.topic,direction,scene,plan,direction.generation_duration_seconds);if(blockingFindings(structured).length)return false;warnings.push(...semanticDirectionFindings(direction,true));return true;});
   const numbers=new Set(reusable.map(direction=>direction.number)),staleSceneNumbers=existing.filter(direction=>expected.has(direction.number)&&!numbers.has(direction.number)).map(direction=>direction.number);return {reusable,missingScenes:targetScenes.filter(scene=>!numbers.has(scene.number)),staleSceneNumbers:[...new Set(staleSceneNumbers)].sort((a,b)=>a-b),fingerprints:expected,warnings};
 }

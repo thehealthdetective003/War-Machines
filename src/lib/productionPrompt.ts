@@ -1,6 +1,6 @@
 import { Type } from '@google/genai';
 import type { AppState, ProductionContext, SceneDirection, T2VPrompt } from '../types';
-import { buildOmniPromptContext, focusedContextCharacterSavings } from './omniPromptContext';
+import { buildLegacyOmniPromptContext, buildOmniPromptContext, focusedContextCharacterSavings } from './omniPromptContext';
 import { compileOmniPrompt, normalizeOmniSections } from './omniPromptCompiler';
 import { isAdvisoryPromptQualityIssue, promptQualityIssues } from './promptQuality';
 import { composeOmniPromptInstruction, PROMPT_COMPILER_VERSION, PROMPT_INSTRUCTION_VERSION } from './productionInstructions';
@@ -25,9 +25,14 @@ export function promptOperationFingerprint(state:Pick<AppState,'topic'>,model:st
   return operationFingerprint(kind,PROMPT_COMPILER_VERSION,{model:kind==='local-graphic'?'LOCAL':model,target:'omni-flash',instructionVersion:PROMPT_INSTRUCTION_VERSION,instruction:kind==='local-graphic'?'deterministic-graphic-compiler':composeOmniPromptInstruction([direction],productText(state)),persistentContext:persistentContext||null,promptContext:buildOmniPromptContext(state.topic,[direction])});
 }
 
+function legacyPromptOperationFingerprint(state:Pick<AppState,'topic'>,model:string,direction:SceneDirection,persistentContext?:ProductionContext):string{
+  const kind=direction.graphic_spec?'local-graphic':'prompt';
+  return operationFingerprint(kind,PROMPT_COMPILER_VERSION,{model:kind==='local-graphic'?'LOCAL':model,target:'omni-flash',instructionVersion:PROMPT_INSTRUCTION_VERSION,instruction:kind==='local-graphic'?'deterministic-graphic-compiler':composeOmniPromptInstruction([direction],productText(state)),persistentContext:persistentContext||null,promptContext:buildLegacyOmniPromptContext(state.topic,[direction])});
+}
+
 export function partitionReusablePrompts(existing:T2VPrompt[],directions:SceneDirection[],state:Pick<AppState,'topic'>,model:string,persistentContext?:ProductionContext){
   const directionByNumber=new Map(directions.map(direction=>[direction.number,direction])),reusable:T2VPrompt[]=[],staleSceneNumbers:number[]=[];
-  existing.forEach(prompt=>{const direction=directionByNumber.get(prompt.number);if(!direction)return;const expected=promptOperationFingerprint(state,model,direction,persistentContext);if(isReusableFingerprint(prompt.operationFingerprint,expected))reusable.push(prompt);else staleSceneNumbers.push(prompt.number);});
+  existing.forEach(prompt=>{const direction=directionByNumber.get(prompt.number);if(!direction)return;const expected=promptOperationFingerprint(state,model,direction,persistentContext),legacy=legacyPromptOperationFingerprint(state,model,direction,persistentContext);if(isReusableFingerprint(prompt.operationFingerprint,expected)||isReusableFingerprint(prompt.operationFingerprint,legacy))reusable.push(prompt);else staleSceneNumbers.push(prompt.number);});
   const reusableNumbers=new Set(reusable.map(prompt=>prompt.number));return {reusable:reusable.sort((a,b)=>a.number-b.number),staleSceneNumbers:[...new Set(staleSceneNumbers)].sort((a,b)=>a-b),missingDirections:directions.filter(direction=>!reusableNumbers.has(direction.number))};
 }
 

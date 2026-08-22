@@ -12,6 +12,7 @@ export interface Settings {
   productionTemplate?: Record<string, any>;
   productionTemplateName?: string;
   productionTemplateImportedAt?: string;
+  showProductionDiagnostics: boolean;
 }
 export interface OmniPromptSections {
   cinematography: string;
@@ -253,6 +254,11 @@ export interface PlannedScene {
   semantic_group_intent?: string;
   /** Deterministic dependency fingerprint for the paid alignment that produced this assignment. */
   alignmentFingerprint?: string;
+  /** Raw Engine beat used to resolve constraints when the displayed beat ID is a deterministic fallback ID. */
+  contract_beat_id?: string;
+  constraint_resolver_version?: number;
+  constraint_sources?: {environment:string;state:string;visualFamily:string;productVisibility:string;references:string;camera:string};
+  allowed_environment_ids?: string[];
 }
 export interface TemporalAction {
   opening_state: string;
@@ -301,6 +307,10 @@ export interface SceneDirection {
   temporal_action?: TemporalAction;
   /** Deterministic dependency fingerprint for the paid direction result. */
   operationFingerprint?: string;
+  contract_beat_id?: string;
+  constraint_resolver_version?: number;
+  constraint_sources?: PlannedScene['constraint_sources'];
+  allowed_environment_ids?: string[];
 }
 export interface T2VPrompt {
   number: number;
@@ -327,6 +337,11 @@ export interface ValidationFinding {
   expected?:unknown;
   actual?:unknown;
   repairHint?:string;
+  constraintSource?:'BEAT'|'STAGE'|'GLOBAL'|'PLAN'|'NONE';
+  allowedEnvironmentIds?:string[];
+  actualEnvironmentId?:string;
+  beatId?:string|null;
+  stageId?:string|null;
 }
 export interface DeferredRepair {
   sceneNumber:number;
