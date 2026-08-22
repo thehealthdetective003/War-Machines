@@ -26,9 +26,9 @@ export function transcriptSummary(transcript:VoiceoverTranscription|null):string
 const operationLabels:Record<string,string>={QUEUED:'Queued',PLANNING:'Planning scenes…',PLANNED:'Scene plan ready',ALIGNING:'Aligning visuals to narration…',ALIGNED:'Visual alignment ready',DIRECTING:'Creating scene directions…',DIRECTION_CORRECTION:'Correcting scene directions…',DIRECTED:'Scene directions ready',GENERATING_PROMPTS:'Generating prompts…',PROMPTS_GENERATED:'Prompts ready',PROMPT_CORRECTION:'Refining prompts…',QA:'Running final checks…',COMPLETE:'Complete'};
 export const productionOperationLabel=(operation?:string)=>operation&&operationLabels[operation]||'Working…';
 
-export type ScenePresentationState='READY'|'WARNING'|'BLOCKED'|'PROMPTING'|'DIRECTING'|'QUEUED';
-export function scenePresentationState(input:{hasDirection:boolean;hasPrompt:boolean;hasWarning:boolean;hasBlocker:boolean}):{state:ScenePresentationState;label:string}{
-  if(input.hasBlocker)return {state:'BLOCKED',label:'Needs repair'};
+export type ScenePresentationState='READY'|'WARNING'|'NEEDS_REVIEW'|'PROMPTING'|'DIRECTING'|'QUEUED';
+export function scenePresentationState(input:{hasDirection:boolean;hasPrompt:boolean;hasWarning:boolean;hasReview:boolean}):{state:ScenePresentationState;label:string}{
+  if(input.hasReview)return {state:'NEEDS_REVIEW',label:'Needs review'};
   if(input.hasPrompt)return input.hasWarning?{state:'WARNING',label:'Review suggested'}:{state:'READY',label:'Ready'};
   if(input.hasDirection)return {state:'PROMPTING',label:'Generating prompt'};
   return {state:'DIRECTING',label:'Preparing direction'};

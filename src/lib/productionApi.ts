@@ -1,4 +1,4 @@
-import type { AppState, PersistedAlignmentSelection, PlannedScene, ProductionContext, SceneDirection, TimedScene, TopicBrief, ValidationFinding, ValidationSeverity } from '../types';
+import type { AppState, PersistedAlignmentSelection, PlannedScene, ProductionContext, SceneDirection, SceneReviewItem, TimedScene, TopicBrief, ValidationFinding, ValidationSeverity } from '../types';
 import type { AlignmentRequestGroup, VisualAlignmentSelection } from './visualAlignment';
 import { validateAlignmentSelections } from './visualAlignment';
 import { mergeDirectionMetadata } from './sceneDirections';
@@ -6,6 +6,7 @@ import { blockingFindings, repairableFindings, semanticDirectionFindings, struct
 import { buildFocusedProductionContext, buildLegacyFocusedProductionContext } from './omniPromptContext';
 import { ALIGNMENT_INSTRUCTION_VERSION, composeAlignmentInstruction, composeDirectionInstruction, DIRECTION_INSTRUCTION_VERSION } from './productionInstructions';
 import { isReusableFingerprint, operationFingerprint } from './operationFingerprint';
+import { sceneReviewDependencyFingerprint } from './reviewFingerprint';
 
 export interface ItemFailure {id:string;number?:number;issues:string[];candidate?:SceneDirection;findings?:ValidationFinding[];severity?:ValidationSeverity;}
 
@@ -44,16 +45,16 @@ export function partitionDirectionResponse(raw:unknown,targetScenes:TimedScene[]
     const plan=targetPlan.find(item=>item.number===scene.number),matches=items.filter((item:any)=>Number(item?.number)===scene.number);
     if(!plan){failed.push({id:String(scene.number),number:scene.number,issues:['MISSING_PLANNED_SCENE']});return;}
     if(matches.length!==1){failed.push({id:String(scene.number),number:scene.number,issues:[matches.length?'DUPLICATE_SCENE_OUTPUT':'MISSING_OR_MALFORMED_SCENE_OUTPUT']});return;}
-    const merged=mergeDirectionMetadata([matches[0]],[scene],[plan],generationDurationSeconds)[0],structured=structuredDirectionFindings(options.topic||null,merged,scene,plan,generationDurationSeconds),semantic=blockingFindings(structured).length?[]:semanticDirectionFindings(merged,Boolean(options.afterRepair)),findings=[...structured,...semantic],blocking=blockingFindings(findings),repairable=repairableFindings(findings),advisory=warningFindings(findings);
+    const merged={...mergeDirectionMetadata([matches[0]],[scene],[plan],generationDurationSeconds)[0],operationFingerprint:fingerprints.get(scene.number)},structured=structuredDirectionFindings(options.topic||null,merged,scene,plan,generationDurationSeconds),semantic=blockingFindings(structured).length?[]:semanticDirectionFindings(merged,Boolean(options.afterRepair)),findings=[...structured,...semantic],blocking=blockingFindings(findings),repairable=repairableFindings(findings),advisory=warningFindings(findings);
     warnings.push(...advisory);
     if(blocking.length||repairable.length){const relevant=[...blocking,...repairable];failed.push({id:String(scene.number),number:scene.number,issues:relevant.map(item=>item.code),candidate:merged,findings:relevant,severity:blocking.length?'BLOCKING_ERROR':'REPAIRABLE_ERROR'});}
-    else accepted.push({...merged,operationFingerprint:fingerprints.get(scene.number)});
+    else accepted.push(merged);
   });
   return {accepted,failed,warnings};
 }
 
-export function partitionReusableDirections(existing:SceneDirection[],targetScenes:TimedScene[],targetPlan:PlannedScene[],state:Pick<AppState,'topic'>,model:string,persistentContext:ProductionContext|null){
+export function partitionReusableDirections(existing:SceneDirection[],targetScenes:TimedScene[],targetPlan:PlannedScene[],state:Pick<AppState,'topic'>,model:string,persistentContext:ProductionContext|null,options:{sceneReviews?:SceneReviewItem[]}={}){
   const planByNumber=new Map(targetPlan.map(plan=>[plan.number,plan])),sceneByNumber=new Map(targetScenes.map(scene=>[scene.number,scene])),expected=new Map(targetScenes.map(scene=>[scene.number,directionOperationFingerprint(state,model,scene,planByNumber.get(scene.number)!,persistentContext)])),warnings:ValidationFinding[]=[];
-  const reusable=existing.filter(direction=>{const scene=sceneByNumber.get(direction.number),plan=planByNumber.get(direction.number);if(!scene||!plan)return false;const current=isReusableFingerprint(direction.operationFingerprint,expected.get(direction.number)!),legacy=isReusableFingerprint(direction.operationFingerprint,legacyDirectionOperationFingerprint(state,model,scene,plan,persistentContext));if(!current&&!legacy)return false;const structured=structuredDirectionFindings(state.topic,direction,scene,plan,direction.generation_duration_seconds);if(blockingFindings(structured).length)return false;warnings.push(...semanticDirectionFindings(direction,true));return true;});
+  const reusable=existing.filter(direction=>{const scene=sceneByNumber.get(direction.number),plan=planByNumber.get(direction.number);if(!scene||!plan)return false;const review=options.sceneReviews?.find(item=>item.sceneNumber===direction.number&&item.operation==='DIRECTION'),dependenciesMatch=!review?.dependencyFingerprint||review.dependencyFingerprint===sceneReviewDependencyFingerprint('DIRECTION',state.topic,scene,plan);if(!dependenciesMatch)return false;const current=isReusableFingerprint(direction.operationFingerprint,expected.get(direction.number)!),legacy=isReusableFingerprint(direction.operationFingerprint,legacyDirectionOperationFingerprint(state,model,scene,plan,persistentContext));if(!current&&!legacy)return false;if(review?.repairAttempted)return true;const structured=structuredDirectionFindings(state.topic,direction,scene,plan,direction.generation_duration_seconds);if(blockingFindings(structured).length)return false;warnings.push(...semanticDirectionFindings(direction,true));return true;});
   const numbers=new Set(reusable.map(direction=>direction.number)),staleSceneNumbers=existing.filter(direction=>expected.has(direction.number)&&!numbers.has(direction.number)).map(direction=>direction.number);return {reusable,missingScenes:targetScenes.filter(scene=>!numbers.has(scene.number)),staleSceneNumbers:[...new Set(staleSceneNumbers)].sort((a,b)=>a-b),fingerprints:expected,warnings};
 }

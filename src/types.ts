@@ -325,7 +325,7 @@ export interface T2VPrompt {
   omniSections?: OmniPromptSections;
   /** Deterministic dependency fingerprint for the paid or locally compiled prompt result. */
   operationFingerprint?: string;
-  generationSource?: 'API'|'LOCAL_GRAPHIC'|'LEGACY';
+  generationSource?: 'API'|'LOCAL_GRAPHIC'|'LOCAL_FALLBACK'|'LEGACY';
 }
 export type ValidationSeverity='PASS'|'WARNING'|'REPAIRABLE_ERROR'|'BLOCKING_ERROR';
 export interface ValidationFinding {
@@ -353,6 +353,18 @@ export interface DeferredRepair {
   dependencies:string[];
   finding?:ValidationFinding;
 }
+export interface SceneReviewItem {
+  sceneNumber:number;
+  operation:'DIRECTION'|'PROMPT';
+  status:'NEEDS_REVIEW';
+  repairAttempted:true;
+  validationCodes:string[];
+  message:string;
+  findings:ValidationFinding[];
+  dependencyFingerprint?:string;
+  candidateSource:'ORIGINAL'|'CORRECTION'|'LOCAL_FALLBACK'|'MIGRATED';
+  updatedAt:string;
+}
 export type GenerationSessionStatus = 'idle' | 'running' | 'paused' | 'interrupted' | 'failed' | 'complete'|'complete_with_warnings'|'deferred_repairs';
 export type ProductionOperation = 'QUEUED'|'PLANNING'|'PLANNED'|'ALIGNING'|'ALIGNED'|'DIRECTING'|'DIRECTION_CORRECTION'|'DIRECTED'|'GENERATING_PROMPTS'|'PROMPTS_GENERATED'|'PROMPT_CORRECTION'|'QA'|'COMPLETE';
 export type ProductionPauseReason = 'user'|'quota'|'rate_limit'|'storage'|'error'|null;
@@ -375,6 +387,7 @@ export interface ProductionBatchState {
   promptCompletedSceneNumbers:number[];
   qaCompletedSceneNumbers:number[];
   directionCorrectionCandidates:SceneDirection[];
+  promptCorrectionCandidates:T2VPrompt[];
   promptCorrectionSceneNumbers:number[];
   directionCorrectionSceneNumbers:number[];
   correctionIssues:Record<string,string[]>;
@@ -420,6 +433,8 @@ export interface GenerationSession {
   pauseReason: ProductionPauseReason;
   context: ProductionContext;
   validationWarnings:ValidationFinding[];
+  sceneReviews:SceneReviewItem[];
+  /** Legacy import-only field. New scene validation issues use sceneReviews. */
   deferredRepairs:DeferredRepair[];
 }
 export interface AppState {

@@ -5,7 +5,7 @@ import { validateSceneDirections } from './sceneDirections';
 import { resolveSceneContract, sceneEnvironmentAllowed, v2HandoffFor } from './sceneContract';
 
 export const MAX_SEMANTIC_CORRECTION_ATTEMPTS=1;
-export const MAX_TARGETED_BLOCKING_REPAIR_ATTEMPTS=2;
+export const MAX_TARGETED_BLOCKING_REPAIR_ATTEMPTS=1;
 export const severityRank:Record<ValidationSeverity,number>={PASS:0,WARNING:1,REPAIRABLE_ERROR:2,BLOCKING_ERROR:3};
 export const highestSeverity=(findings:ValidationFinding[]):ValidationSeverity=>findings.reduce<ValidationSeverity>((highest,item)=>severityRank[item.severity]>severityRank[highest]?item.severity:highest,'PASS');
 export const blockingFindings=(findings:ValidationFinding[])=>findings.filter(item=>item.severity==='BLOCKING_ERROR');

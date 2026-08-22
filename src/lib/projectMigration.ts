@@ -6,6 +6,7 @@ import { projectOrTranscriptSceneDuration } from './sceneDuration';
 import { normalizeGenerationSession } from './generationSession';
 import { createResumableProductionSession, synchronizeProductionSession } from './productionSession';
 import { clearResolvedEnvironmentRepairs, resolveSceneContract } from './sceneContract';
+import { materializeReviewedOutputs } from './sceneReview';
 
 export type MigrationResult = { state: AppState | null; message?: string; error?: string };
 
@@ -81,13 +82,18 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     : [];
   const preserveOutput = compatiblePrompts.length > 0;
   const productionComplete=!!transcription&&compatiblePrompts.length===transcription.scenes.length&&directionsValid;
+  const legacyDeferredCount=Array.isArray(raw.generationSession?.deferredRepairs)?raw.generationSession.deferredRepairs.length:0;
   let generationSession = normalizeGenerationSession(raw.generationSession,compatiblePrompts.length);
-  if(raw.projectSchemaVersion<13||!generationSession.batches.length)generationSession=createResumableProductionSession(transcription?.scenes||[],planValid?rawPlan:[],directionPrefixValid?repairedDirections:[],compatiblePrompts);
+  if(raw.projectSchemaVersion<13||!generationSession.batches.length){
+    const normalized=generationSession;
+    generationSession=createResumableProductionSession(transcription?.scenes||[],planValid?rawPlan:[],directionPrefixValid?repairedDirections:[],compatiblePrompts);
+    if(raw.projectSchemaVersion>=13)generationSession={...generationSession,sceneReviews:normalized.sceneReviews,validationWarnings:normalized.validationWarnings};
+  }
   if (!raw.generationSession && directionsValid && compatiblePrompts.length === repairedDirections.length && compatiblePrompts.length > 0) {
     generationSession.status = 'complete';
     generationSession.completedScenes = compatiblePrompts.length;
   }
-  const phase = productionComplete||generationSession.status==='deferred_repairs'?3:(raw.topic&&transcription?2:1);
+  const phase = productionComplete?3:(raw.topic&&transcription?2:1);
   let state: AppState = {
     ...initial,
     id: raw.id,
@@ -102,15 +108,18 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     sceneDirections: directionPrefixValid ? repairedDirections : [],
     visualPrompts: preserveOutput ? compatiblePrompts.sort((a,b)=>a.number-b.number) : [],
     generationSession,
-    projectSchemaVersion: 16,
+    projectSchemaVersion: 17,
   };
-  generationSession=synchronizeProductionSession(generationSession,state);state.generationSession=productionComplete?{...generationSession,status:generationSession.status==='complete_with_warnings'?'complete_with_warnings':'complete',operation:'COMPLETE'}:generationSession;
+  generationSession=synchronizeProductionSession(generationSession,state);state.generationSession=productionComplete?{...generationSession,status:generationSession.sceneReviews.length||generationSession.validationWarnings.length?'complete_with_warnings':'complete',operation:'COMPLETE'}:generationSession;
   const environmentRepairMigration=clearResolvedEnvironmentRepairs(state);state=environmentRepairMigration.state;
   if(environmentRepairMigration.clearedSceneNumbers.length){
     const allOutputs=!!transcription&&state.sceneDirections.length===transcription.scenes.length&&state.visualPrompts.length===transcription.scenes.length;
     state.generationSession=synchronizeProductionSession(state.generationSession,state);
-    if(!state.generationSession.deferredRepairs.length)state={...state,phase:allOutputs?3:2,generationSession:{...state.generationSession,status:allOutputs?(state.generationSession.validationWarnings.length?'complete_with_warnings':'complete'):'paused',operation:allOutputs?'COMPLETE':state.generationSession.operation,pauseReason:allOutputs?null:state.generationSession.pauseReason,error:null}};
+    if(!state.generationSession.deferredRepairs.length)state={...state,phase:allOutputs?3:2,generationSession:{...state.generationSession,status:allOutputs?(state.generationSession.validationWarnings.length||state.generationSession.sceneReviews.length?'complete_with_warnings':'complete'):'paused',operation:allOutputs?'COMPLETE':state.generationSession.operation,pauseReason:allOutputs?null:state.generationSession.pauseReason,error:null}};
   }
+  const reviewMaterialization=materializeReviewedOutputs(state,sceneDuration);state=reviewMaterialization.state;
+  const allReviewedOutputs=!!transcription&&state.sceneDirections.length===transcription.scenes.length&&state.visualPrompts.length===transcription.scenes.length;
+  if(allReviewedOutputs&&state.generationSession.sceneReviews.length)state={...state,phase:3,generationSession:{...synchronizeProductionSession(state.generationSession,state),status:'complete_with_warnings',operation:'COMPLETE',pauseReason:null,error:null}};
   const reset = timingChanged || imageMode || (!directionPrefixValid && repairedDirections.length > 0) || (rawPrompts.length > 0 && !preserveOutput);
   const planningUpgrade = raw.projectSchemaVersion < 12 && rawPlan.length > 0;
   const resumableDirections = directionPrefixValid && (repairedDirections.length < (transcription?.scenes.length || 0)||compatiblePrompts.length<repairedDirections.length);
@@ -120,5 +129,6 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     : legacyVeoProject ? 'Legacy project imported safely. Compatible historical prompts were preserved; future generation uses Omni Flash.'
     : reset && raw.topic ? 'Project migrated to the timestamped T2V pipeline; incompatible downstream output was reset.' : undefined;
   const repairMessage=environmentRepairMigration.clearedSceneNumbers.length?`Cleared ${environmentRepairMigration.clearedSceneNumbers.length} obsolete environment repair${environmentRepairMigration.clearedSceneNumbers.length===1?'':'s'} locally without regeneration.`:undefined;
-  return {state,message:[repairMessage,baseMessage].filter(Boolean).join(' ')||undefined};
+  const reviewMessage=legacyDeferredCount?`Converted ${legacyDeferredCount} legacy deferred scene issue${legacyDeferredCount===1?'':'s'} to non-blocking Needs Review and preserved or restored the best available output locally.`:undefined;
+  return {state,message:[repairMessage,reviewMessage,baseMessage].filter(Boolean).join(' ')||undefined};
 }

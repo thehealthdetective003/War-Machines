@@ -100,6 +100,11 @@ export function clearResolvedEnvironmentRepairs(state:AppState):{state:AppState;
     const contract=resolveSceneContract(state.topic,plan),valid=sceneEnvironmentAllowed(contract,plan.environment_ref)&&direction.environment_ref===plan.environment_ref;
     if(valid)clearedSceneNumbers.push(repair.sceneNumber);return !valid;
   });
+  const sceneReviews=state.generationSession.sceneReviews.filter(review=>{
+    if(review.operation!=='DIRECTION'||!review.validationCodes.length||!review.validationCodes.every(code=>environmentRepairCodes.has(code)))return true;
+    const plan=state.plannedScenes.find(item=>item.number===review.sceneNumber),direction=state.sceneDirections.find(item=>item.number===review.sceneNumber);if(!plan||!direction)return true;
+    const contract=resolveSceneContract(state.topic,plan),valid=sceneEnvironmentAllowed(contract,plan.environment_ref)&&direction.environment_ref===plan.environment_ref;if(valid)clearedSceneNumbers.push(review.sceneNumber);return !valid;
+  });
   if(!clearedSceneNumbers.length)return {state,clearedSceneNumbers};
-  return {state:{...state,generationSession:{...state.generationSession,deferredRepairs,correctionPendingSceneNumbers:state.generationSession.correctionPendingSceneNumbers.filter(number=>!clearedSceneNumbers.includes(number)),validationWarnings:state.generationSession.validationWarnings.filter(item=>!clearedSceneNumbers.includes(item.sceneNumber)||!environmentRepairCodes.has(item.code))}},clearedSceneNumbers:[...new Set(clearedSceneNumbers)].sort((a,b)=>a-b)};
+  return {state:{...state,generationSession:{...state.generationSession,sceneReviews,deferredRepairs,correctionPendingSceneNumbers:state.generationSession.correctionPendingSceneNumbers.filter(number=>!clearedSceneNumbers.includes(number)),validationWarnings:state.generationSession.validationWarnings.filter(item=>!clearedSceneNumbers.includes(item.sceneNumber)||!environmentRepairCodes.has(item.code))}},clearedSceneNumbers:[...new Set(clearedSceneNumbers)].sort((a,b)=>a-b)};
 }

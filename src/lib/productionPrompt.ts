@@ -1,5 +1,5 @@
 import { Type } from '@google/genai';
-import type { AppState, ProductionContext, SceneDirection, T2VPrompt } from '../types';
+import type { AppState, ProductionContext, SceneDirection, SceneReviewItem, T2VPrompt } from '../types';
 import { buildLegacyOmniPromptContext, buildOmniPromptContext, focusedContextCharacterSavings } from './omniPromptContext';
 import { compileOmniPrompt, normalizeOmniSections } from './omniPromptCompiler';
 import { isAdvisoryPromptQualityIssue, promptQualityIssues } from './promptQuality';
@@ -7,12 +7,13 @@ import { composeOmniPromptInstruction, PROMPT_COMPILER_VERSION, PROMPT_INSTRUCTI
 import { operationFingerprint } from './operationFingerprint';
 import { isReusableFingerprint } from './operationFingerprint';
 import { recordApiCall, recordLocalGraphicCompilation, recordPartialAcceptance, recordUnusedFieldsRemoved } from './apiDiagnostics';
+import { sceneReviewDependencyFingerprint } from './reviewFingerprint';
 
 export interface ContentGenerator {models:{generateContent:(request:any)=>Promise<{text?:string}>};}
 const omniSectionsProperties={cinematography:{type:Type.STRING},subject:{type:Type.STRING},environment:{type:Type.STRING},style_lighting:{type:Type.STRING},exclusions:{type:Type.STRING}};
 const omniResponseSchema={type:Type.ARRAY,items:{type:Type.OBJECT,required:['number','prompt_sections'],properties:{number:{type:Type.INTEGER},prompt_sections:{type:Type.OBJECT,required:Object.keys(omniSectionsProperties),properties:omniSectionsProperties}}}};
 
-export interface PromptFailure {number:number;issues:string[];}
+export interface PromptFailure {number:number;issues:string[];candidate?:T2VPrompt;}
 export interface PromptAttemptResult {accepted:T2VPrompt[];failed:PromptFailure[];reason:string|null;apiRequestedSceneNumbers:number[];locallyCompiledSceneNumbers:number[];}
 
 const blockingIssues=(prompt:T2VPrompt,direction:SceneDirection)=>promptQualityIssues(prompt,direction).filter(issue=>!isAdvisoryPromptQualityIssue(issue));
@@ -30,9 +31,9 @@ function legacyPromptOperationFingerprint(state:Pick<AppState,'topic'>,model:str
   return operationFingerprint(kind,PROMPT_COMPILER_VERSION,{model:kind==='local-graphic'?'LOCAL':model,target:'omni-flash',instructionVersion:PROMPT_INSTRUCTION_VERSION,instruction:kind==='local-graphic'?'deterministic-graphic-compiler':composeOmniPromptInstruction([direction],productText(state)),persistentContext:persistentContext||null,promptContext:buildLegacyOmniPromptContext(state.topic,[direction])});
 }
 
-export function partitionReusablePrompts(existing:T2VPrompt[],directions:SceneDirection[],state:Pick<AppState,'topic'>,model:string,persistentContext?:ProductionContext){
+export function partitionReusablePrompts(existing:T2VPrompt[],directions:SceneDirection[],state:Pick<AppState,'topic'>,model:string,persistentContext?:ProductionContext,options:{sceneReviews?:SceneReviewItem[]}={}){
   const directionByNumber=new Map(directions.map(direction=>[direction.number,direction])),reusable:T2VPrompt[]=[],staleSceneNumbers:number[]=[];
-  existing.forEach(prompt=>{const direction=directionByNumber.get(prompt.number);if(!direction)return;const expected=promptOperationFingerprint(state,model,direction,persistentContext),legacy=legacyPromptOperationFingerprint(state,model,direction,persistentContext);if(isReusableFingerprint(prompt.operationFingerprint,expected)||isReusableFingerprint(prompt.operationFingerprint,legacy))reusable.push(prompt);else staleSceneNumbers.push(prompt.number);});
+  existing.forEach(prompt=>{const direction=directionByNumber.get(prompt.number);if(!direction)return;const review=options.sceneReviews?.find(item=>item.sceneNumber===prompt.number&&item.operation==='PROMPT'),scene={number:direction.number,start:direction.start,end:direction.end,duration:direction.duration,text:direction.voiceover,silent:direction.silent},dependenciesMatch=!review?.dependencyFingerprint||review.dependencyFingerprint===sceneReviewDependencyFingerprint('PROMPT',state.topic,scene,direction,direction);if(!dependenciesMatch){staleSceneNumbers.push(prompt.number);return;}const expected=promptOperationFingerprint(state,model,direction,persistentContext),legacy=legacyPromptOperationFingerprint(state,model,direction,persistentContext);if(isReusableFingerprint(prompt.operationFingerprint,expected)||isReusableFingerprint(prompt.operationFingerprint,legacy))reusable.push(prompt);else staleSceneNumbers.push(prompt.number);});
   const reusableNumbers=new Set(reusable.map(prompt=>prompt.number));return {reusable:reusable.sort((a,b)=>a.number-b.number),staleSceneNumbers:[...new Set(staleSceneNumbers)].sort((a,b)=>a-b),missingDirections:directions.filter(direction=>!reusableNumbers.has(direction.number))};
 }
 
@@ -42,7 +43,7 @@ export function compileLocalGraphicPrompt(state:Pick<AppState,'topic'>,direction
   const {sections}=normalizeOmniSections({},direction,state.topic);
   const prompt:T2VPrompt={...metadata(direction),video_prompt:compileOmniPrompt(sections,direction),quality_flags:[],omniSections:sections,operationFingerprint:fingerprint,generationSource:'LOCAL_GRAPHIC'};
   const issues=blockingIssues(prompt,direction);prompt.quality_flags=promptQualityIssues(prompt,direction);
-  if(issues.length)return {prompt:null,failure:{number:direction.number,issues}};
+  if(issues.length)return {prompt:null,failure:{number:direction.number,issues,candidate:prompt}};
   recordLocalGraphicCompilation();return {prompt,failure:null};
 }
 
@@ -65,9 +66,15 @@ export async function requestPromptAttempt(ai:ContentGenerator,model:string,stat
     try{
       if(!item.prompt_sections||typeof item.prompt_sections!=='object')throw new Error('MISSING_PROMPT_SECTIONS');const {sections}=normalizeOmniSections(item.prompt_sections,direction,state.topic);const prompt:T2VPrompt={...metadata(direction),video_prompt:compileOmniPrompt(sections,direction),quality_flags:[],omniSections:sections,operationFingerprint:promptOperationFingerprint(state,model,direction,persistentContext),generationSource:'API'};
       const allIssues=promptQualityIssues(prompt,direction),blocking=allIssues.filter(issue=>!isAdvisoryPromptQualityIssue(issue));prompt.quality_flags=allIssues;
-      if(blocking.length)failed.push({number:direction.number,issues:blocking});else accepted.push(prompt);
+      if(blocking.length)failed.push({number:direction.number,issues:blocking,candidate:prompt});else accepted.push(prompt);
     }catch(error){failed.push({number:direction.number,issues:[error instanceof Error?error.message:'INVALID_PROMPT_OUTPUT']});}
   }
   recordPartialAcceptance(accepted.length,failed.length,Boolean(qualityRetry));
   return {accepted:accepted.sort((a,b)=>a.number-b.number),failed,reason:failureReason(failed),apiRequestedSceneNumbers:apiDirections.map(item=>item.number),locallyCompiledSceneNumbers};
+}
+
+export function compileFallbackPrompt(state:Pick<AppState,'topic'>,direction:SceneDirection,model='LOCAL_REVIEW',persistentContext?:ProductionContext,fingerprintOverride?:string):T2VPrompt{
+  const {sections}=normalizeOmniSections({},direction,state.topic);
+  const prompt:T2VPrompt={...metadata(direction),video_prompt:compileOmniPrompt(sections,direction),quality_flags:[],omniSections:sections,operationFingerprint:fingerprintOverride||promptOperationFingerprint(state,model,direction,persistentContext),generationSource:'LOCAL_FALLBACK'};
+  prompt.quality_flags=promptQualityIssues(prompt,direction);return prompt;
 }

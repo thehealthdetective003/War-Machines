@@ -6,7 +6,7 @@ export type SceneRepairKind='prompt'|'direction';
 
 const cleanProductionStatus=(state:AppState)=>state.generationSession.status==='complete'||state.generationSession.status==='complete_with_warnings';
 const allOutputsPresent=(state:AppState)=>{const total=state.voiceoverTranscription?.scenes.length||0;return total>0&&state.sceneDirections.length===total&&state.visualPrompts.length===total;};
-export const isReviewAvailable=(state:AppState)=>(cleanProductionStatus(state)&&allOutputsPresent(state))||state.generationSession.status==='deferred_repairs';
+export const isReviewAvailable=(state:AppState)=>cleanProductionStatus(state)&&allOutputsPresent(state);
 
 export function projectWorkflowStage(state:AppState):PhaseType{
   if(isReviewAvailable(state))return 3;
@@ -16,7 +16,7 @@ export function projectWorkflowStage(state:AppState):PhaseType{
 
 export function isWorkflowStageComplete(state:AppState,phase:PhaseType):boolean{
   if(phase===1)return validateProductionReadiness(state).ready;
-  const clean=cleanProductionStatus(state)&&allOutputsPresent(state)&&state.generationSession.deferredRepairs.length===0;
+  const clean=cleanProductionStatus(state)&&allOutputsPresent(state);
   if(phase===2)return clean;
   return clean;
 }
@@ -26,7 +26,8 @@ export function prepareSceneRepair(state:AppState,sceneNumber:number,kind:SceneR
   const visualPrompts=state.visualPrompts.filter(item=>item.number!==sceneNumber);
   let session=createResumableProductionSession(state.voiceoverTranscription?.scenes||[],state.plannedScenes,sceneDirections,visualPrompts);
   const deferredRepairs=state.generationSession.deferredRepairs.filter(item=>item.sceneNumber!==sceneNumber||(kind==='prompt'&&item.operation==='DIRECTION'));
-  session=synchronizeProductionSession({...session,status:'paused',pauseReason:'user',error:null,validationWarnings:state.generationSession.validationWarnings.filter(item=>item.sceneNumber!==sceneNumber),deferredRepairs},{...state,sceneDirections,visualPrompts});
+  const sceneReviews=state.generationSession.sceneReviews.filter(item=>item.sceneNumber!==sceneNumber||(kind==='prompt'&&item.operation==='DIRECTION'));
+  session=synchronizeProductionSession({...session,status:'paused',pauseReason:'user',error:null,validationWarnings:state.generationSession.validationWarnings.filter(item=>item.sceneNumber!==sceneNumber),sceneReviews,deferredRepairs},{...state,sceneDirections,visualPrompts});
   return {...state,phase:2,sceneDirections,visualPrompts,generationSession:session};
 }
 
@@ -34,7 +35,7 @@ export function prepareBatchRedirect(state:AppState,batchId:string):AppState{
   const batch=state.generationSession.batches.find(item=>item.id===batchId);if(!batch)return state;
   const numbers=new Set(batch.sceneNumbers),sceneDirections=state.sceneDirections.filter(item=>!numbers.has(item.number)),visualPrompts=state.visualPrompts.filter(item=>!numbers.has(item.number));
   let session=createResumableProductionSession(state.voiceoverTranscription?.scenes||[],state.plannedScenes,sceneDirections,visualPrompts);
-  session=synchronizeProductionSession({...session,status:'paused',pauseReason:'user',error:null,validationWarnings:state.generationSession.validationWarnings.filter(item=>!numbers.has(item.sceneNumber)),deferredRepairs:state.generationSession.deferredRepairs.filter(item=>!numbers.has(item.sceneNumber))},{...state,sceneDirections,visualPrompts});
+  session=synchronizeProductionSession({...session,status:'paused',pauseReason:'user',error:null,validationWarnings:state.generationSession.validationWarnings.filter(item=>!numbers.has(item.sceneNumber)),sceneReviews:state.generationSession.sceneReviews.filter(item=>!numbers.has(item.sceneNumber)),deferredRepairs:state.generationSession.deferredRepairs.filter(item=>!numbers.has(item.sceneNumber))},{...state,sceneDirections,visualPrompts});
   return {...state,phase:2,sceneDirections,visualPrompts,generationSession:session};
 }
 

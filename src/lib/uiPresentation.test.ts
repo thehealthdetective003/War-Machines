@@ -14,7 +14,7 @@ test('transcript presentation preserves timing while returning one compact summa
 });
 
 test('production presentation hides operation enums and reduces completed internals to Ready',()=>{
-  assert.equal(productionOperationLabel('DIRECTION_CORRECTION'),'Correcting scene directions…');assert.equal(scenePresentationState({hasDirection:true,hasPrompt:true,hasWarning:false,hasBlocker:false}).label,'Ready');assert.equal(scenePresentationState({hasDirection:true,hasPrompt:true,hasWarning:true,hasBlocker:false}).label,'Review suggested');assert.equal(scenePresentationState({hasDirection:false,hasPrompt:false,hasWarning:false,hasBlocker:true}).label,'Needs repair');
+  assert.equal(productionOperationLabel('DIRECTION_CORRECTION'),'Correcting scene directions…');assert.equal(scenePresentationState({hasDirection:true,hasPrompt:true,hasWarning:false,hasReview:false}).label,'Ready');assert.equal(scenePresentationState({hasDirection:true,hasPrompt:true,hasWarning:true,hasReview:false}).label,'Review suggested');assert.equal(scenePresentationState({hasDirection:true,hasPrompt:true,hasWarning:false,hasReview:true}).label,'Needs review');
 });
 
 test('diagnostic details follow the persisted user preference',()=>{assert.equal(diagnosticsVisible(false),false);assert.equal(diagnosticsVisible(true),true);});

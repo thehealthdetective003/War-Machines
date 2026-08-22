@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:timing": "tsx --test src/lib/timedTranscript.test.ts src/lib/transcriptionImport.test.ts src/lib/sceneDirections.test.ts src/lib/directionSemantics.test.ts src/lib/scenePlanner.test.ts src/lib/visualAlignment.test.ts src/lib/visualBalance.test.ts src/lib/sceneContract.test.ts src/lib/omniPromptContext.test.ts src/lib/omniPromptCompiler.test.ts src/lib/promptQuality.test.ts src/lib/promptBatch.test.ts src/lib/projectMigration.test.ts src/lib/handoffValidation.test.ts src/lib/pagination.test.ts src/lib/storageUtils.test.ts src/lib/productionSession.test.ts src/lib/setupValidation.test.ts src/lib/productionEfficiency.test.ts src/lib/workflowState.test.ts src/lib/validationModel.test.ts src/lib/uiPresentation.test.ts"
+    "test:timing": "tsx --test src/lib/timedTranscript.test.ts src/lib/transcriptionImport.test.ts src/lib/sceneDirections.test.ts src/lib/directionSemantics.test.ts src/lib/scenePlanner.test.ts src/lib/visualAlignment.test.ts src/lib/visualBalance.test.ts src/lib/sceneContract.test.ts src/lib/omniPromptContext.test.ts src/lib/omniPromptCompiler.test.ts src/lib/promptQuality.test.ts src/lib/promptBatch.test.ts src/lib/projectMigration.test.ts src/lib/handoffValidation.test.ts src/lib/pagination.test.ts src/lib/storageUtils.test.ts src/lib/productionSession.test.ts src/lib/sceneReview.test.ts src/lib/setupValidation.test.ts src/lib/productionEfficiency.test.ts src/lib/workflowState.test.ts src/lib/validationModel.test.ts src/lib/uiPresentation.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

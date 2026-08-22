@@ -9,14 +9,14 @@ import { productionOperationLabel, scenePresentationState } from '../lib/uiPrese
 
 const titleCase=(value:string|undefined)=>value?value.toLowerCase().replaceAll('_',' ').replace(/\b\w/g,letter=>letter.toUpperCase()):'Preparing';
 
-interface HealthProps {families:number;graphics:number;longestRun:number;prompts:number;total:number;warnings:number;blockers:number;}
-export function ProductionHealthSummary({families,graphics,longestRun,prompts,total,warnings,blockers}:HealthProps){
-  const issueCount=warnings+blockers;
-  const label=blockers?`${blockers} repair${blockers===1?'':'s'} needed`:warnings?`${warnings} warning${warnings===1?'':'s'}`:'Good';
+interface HealthProps {families:number;graphics:number;longestRun:number;prompts:number;total:number;warnings:number;reviewCount:number;}
+export function ProductionHealthSummary({families,graphics,longestRun,prompts,total,warnings,reviewCount}:HealthProps){
+  const issueCount=warnings+reviewCount;
+  const label=reviewCount?`${reviewCount} need review`:warnings?`${warnings} warning${warnings===1?'':'s'}`:'Good';
   return <details className={`health-summary group rounded-xl border bg-background/35 ${issueCount?'border-amber-500/25':'border-border/60'}`}>
     <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
       <span className="text-sm font-semibold">Production health</span>
-      <span className={`flex items-center gap-2 text-xs font-medium ${blockers?'text-destructive':warnings?'text-amber-500':'text-emerald-500'}`}>{issueCount?<AlertTriangle className="h-3.5 w-3.5"/>:<CheckCircle2 className="h-3.5 w-3.5"/>}{label}<ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180"/></span>
+      <span className={`flex items-center gap-2 text-xs font-medium ${issueCount?'text-amber-500':'text-emerald-500'}`}>{issueCount?<AlertTriangle className="h-3.5 w-3.5"/>:<CheckCircle2 className="h-3.5 w-3.5"/>}{label}<ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180"/></span>
     </summary>
     <div className="grid grid-cols-2 gap-px border-t border-border/50 bg-border/50 sm:grid-cols-5"><Metric label="Visual families" value={families}/><Metric label="Graphics" value={`${graphics}%`}/><Metric label="Longest repeat" value={longestRun}/><Metric label="Prompts" value={`${prompts}/${total}`}/><Metric label="Open issues" value={issueCount}/></div>
   </details>;
@@ -34,12 +34,12 @@ interface BatchRowProps extends BatchListProps {key?:string;batch:ProductionBatc
 function BatchRow({batch,state,running,showDiagnostics,active,onRepair,onRedirectBatch}:BatchRowProps){
   const [expanded,setExpanded]=useState(active&&batch.operation!=='COMPLETE');
   const session=state.generationSession;
-  const blockers=session.deferredRepairs.filter(item=>batch.sceneNumbers.includes(item.sceneNumber));
+  const reviews=session.sceneReviews.filter(item=>batch.sceneNumbers.includes(item.sceneNumber)),reviewedScenes=new Set(reviews.map(item=>item.sceneNumber));
   const promptCount=batch.promptCompletedSceneNumbers.length;
-  const status=blockers.length?`${blockers.length} repair${blockers.length===1?'':'s'} needed`:batch.operation==='COMPLETE'?'Complete':active?`${productionOperationLabel(session.operation)} · ${promptCount}/${batch.sceneNumbers.length}`:'Queued';
-  return <details open={expanded} onToggle={event=>setExpanded(event.currentTarget.open)} className={`batch-row group rounded-xl border bg-background/35 ${blockers.length?'border-amber-500/30':active?'border-primary/30':'border-border/60'}`}>
+  const status=reviewedScenes.size?`${batch.operation==='COMPLETE'?'Complete · ':''}${reviewedScenes.size} need review`:batch.operation==='COMPLETE'?'Complete':active?`${productionOperationLabel(session.operation)} · ${promptCount}/${batch.sceneNumbers.length}`:'Queued';
+  return <details open={expanded} onToggle={event=>setExpanded(event.currentTarget.open)} className={`batch-row group rounded-xl border bg-background/35 ${reviewedScenes.size?'border-amber-500/30':active?'border-primary/30':'border-border/60'}`}>
     <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
-      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${batch.operation==='COMPLETE'&&!blockers.length?'bg-emerald-500/10 text-emerald-500':active?'bg-primary/10 text-primary':'bg-muted text-muted-foreground'}`}>{batch.operation==='COMPLETE'&&!blockers.length?<CheckCircle2 className="h-4 w-4"/>:<Clock3 className="h-4 w-4"/>}</span>
+      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${batch.operation==='COMPLETE'&&!reviewedScenes.size?'bg-emerald-500/10 text-emerald-500':reviewedScenes.size?'bg-amber-500/10 text-amber-500':active?'bg-primary/10 text-primary':'bg-muted text-muted-foreground'}`}>{batch.operation==='COMPLETE'&&!reviewedScenes.size?<CheckCircle2 className="h-4 w-4"/>:reviewedScenes.size?<AlertTriangle className="h-4 w-4"/>:<Clock3 className="h-4 w-4"/>}</span>
       <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">Batch {String(batch.index).padStart(2,'0')} · Scenes {batch.sceneNumbers[0]}–{batch.sceneNumbers.at(-1)}</span><span className="mt-0.5 block text-xs text-muted-foreground">{status}</span></span>
       {showDiagnostics&&<Badge variant="outline" className="hidden sm:inline-flex">{batch.operation}</Badge>}
       <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180"/>
@@ -60,16 +60,16 @@ function SceneRow({number,state,running,showDiagnostics,onRepair}:SceneRowProps)
   const direction=state.sceneDirections.find(item=>item.number===number);
   const prompt=state.visualPrompts.find(item=>item.number===number);
   const warning=state.generationSession.validationWarnings.find(item=>item.sceneNumber===number);
-  const blocker=state.generationSession.deferredRepairs.find(item=>item.sceneNumber===number);
-  const presentation=scenePresentationState({hasDirection:Boolean(direction),hasPrompt:Boolean(prompt),hasWarning:Boolean(warning),hasBlocker:Boolean(blocker)});
+  const reviews=state.generationSession.sceneReviews.filter(item=>item.sceneNumber===number);
+  const presentation=scenePresentationState({hasDirection:Boolean(direction),hasPrompt:Boolean(prompt),hasWarning:Boolean(warning),hasReview:Boolean(reviews.length)});
   return <details open={expanded} onToggle={event=>setExpanded(event.currentTarget.open)} className="scene-row group/scene rounded-lg border border-border/50 bg-card/55">
     <summary className="grid cursor-pointer list-none items-center gap-3 px-3 py-3 outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:grid-cols-[95px_minmax(0,1fr)_auto]">
       <div><div className="text-xs font-semibold">Scene {number}</div><div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{formatTimestamp(timed?.start||0)}–{formatTimestamp(timed?.end||0)}</div></div>
       <div className="min-w-0"><p className="truncate text-xs text-foreground/90">{timed?.text||'[Silent scene]'}</p><p className="mt-1 text-[11px] text-muted-foreground">{titleCase(plan?.visual_family)}</p></div>
-      <div className={`flex items-center gap-1.5 text-xs font-medium ${presentation.state==='READY'?'text-emerald-500':presentation.state==='WARNING'?'text-amber-500':presentation.state==='BLOCKED'?'text-destructive':'text-muted-foreground'}`}>{presentation.state==='READY'?<CheckCircle2 className="h-3.5 w-3.5"/>:presentation.state==='WARNING'||presentation.state==='BLOCKED'?<AlertTriangle className="h-3.5 w-3.5"/>:<Clock3 className="h-3.5 w-3.5"/>}{presentation.label}<ChevronDown className="ml-1 h-3.5 w-3.5 text-muted-foreground transition-transform group-open/scene:rotate-180"/></div>
+      <div className={`flex items-center gap-1.5 text-xs font-medium ${presentation.state==='READY'?'text-emerald-500':presentation.state==='WARNING'||presentation.state==='NEEDS_REVIEW'?'text-amber-500':'text-muted-foreground'}`}>{presentation.state==='READY'?<CheckCircle2 className="h-3.5 w-3.5"/>:presentation.state==='WARNING'||presentation.state==='NEEDS_REVIEW'?<AlertTriangle className="h-3.5 w-3.5"/>:<Clock3 className="h-3.5 w-3.5"/>}{presentation.label}<ChevronDown className="ml-1 h-3.5 w-3.5 text-muted-foreground transition-transform group-open/scene:rotate-180"/></div>
     </summary>
     {expanded&&<div className="space-y-3 border-t border-border/50 p-3">
-      {blocker&&<div className="rounded-lg border border-destructive/25 bg-destructive/[0.06] p-3 text-xs"><div className="font-semibold text-destructive">This scene needs repair</div><p className="mt-1 text-muted-foreground">Automatic repair could not safely resolve it. Unrelated production work remains saved.</p>{showDiagnostics&&<div className="mt-2 font-mono text-[10px] text-muted-foreground">{blocker.validationCode} · {blocker.lastError}</div>}</div>}
+      {reviews.length>0&&<div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.05] p-3 text-xs"><div className="font-semibold text-amber-500">Needs review</div><p className="mt-1 text-muted-foreground">One automatic repair was attempted. The best available direction and prompt were kept, and production continued.</p><div className="mt-2 space-y-1 text-[11px] text-muted-foreground">{reviews.map(item=><div key={item.operation}><span className="font-medium text-foreground">{titleCase(item.operation)}:</span> {item.validationCodes.join(', ')}</div>)}</div>{showDiagnostics&&<pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 font-mono text-[10px] text-muted-foreground">{JSON.stringify(reviews,null,2)}</pre>}</div>}
       {warning&&<div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.05] p-3 text-xs text-amber-500">Review suggested{showDiagnostics?` · ${warning.code}`:''}</div>}
       {direction&&<div><div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Scene direction</div><p className="text-xs leading-relaxed">{direction.primary_action}</p>{showDiagnostics&&<pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-background p-3 font-mono text-[10px] text-muted-foreground">{JSON.stringify(direction,null,2)}</pre>}</div>}
       {prompt&&<div><div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Final prompt</div><Textarea readOnly value={prompt.video_prompt} className="min-h-32 text-xs"/>{showDiagnostics&&<div className="mt-2 break-all font-mono text-[10px] text-muted-foreground">Stage {prompt.stage_id||'—'} · State {prompt.state||'—'} · Source {prompt.generationSource||'—'} · Fingerprint {prompt.operationFingerprint||'—'}</div>}</div>}

@@ -45,7 +45,7 @@ function WorkspaceLoader({ label = 'Preparing your project workspace' }: { label
   );
 }
 export const INITIAL_STATE: AppState = {
-  projectSchemaVersion: 16,
+  projectSchemaVersion: 17,
   id: undefined,
   projectName: 'Untitled Manufacturing Sequence',
   projectFormat: 'standard-lifecycle',

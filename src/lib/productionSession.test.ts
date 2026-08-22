@@ -44,16 +44,17 @@ test('round-trips direction and prompt correction checkpoints without losing can
   const restoredDirection=normalizeGenerationSession(JSON.parse(JSON.stringify(directionPending)));
   assert.equal(restoredDirection.batches[0].operation,'DIRECTION_CORRECTION');
   assert.equal(restoredDirection.batches[0].directionCorrectionCandidates[0].number,3);
-  const promptPending=updateProductionBatch(restoredDirection,batch.id,'PROMPT_CORRECTION',{directionCorrectionCandidates:[],promptCorrectionSceneNumbers:[4],correctionReason:'quality gate'});
+  const promptPending=updateProductionBatch(restoredDirection,batch.id,'PROMPT_CORRECTION',{directionCorrectionCandidates:[],promptCorrectionCandidates:[prompt(4)],promptCorrectionSceneNumbers:[4],correctionReason:'quality gate'});
   const restoredPrompt=normalizeGenerationSession(JSON.parse(JSON.stringify(promptPending)));
   assert.equal(restoredPrompt.batches[0].operation,'PROMPT_CORRECTION');
   assert.deepEqual(restoredPrompt.batches[0].promptCorrectionSceneNumbers,[4]);
+  assert.equal(restoredPrompt.batches[0].promptCorrectionCandidates[0].number,4);
 });
 
-test('round-trips persisted warnings and a bounded deferred repair queue',()=>{
+test('migrates a legacy deferred repair into one durable review marker',()=>{
   const session=createProductionSession(scenes(8),plans(8)),warning={sceneNumber:3,code:'AMBIGUOUS_SEMANTICS',severity:'WARNING' as const,message:'Advisory'},repair={sceneNumber:4,operation:'DIRECTION' as const,validationCode:'COMPONENT_PRESENT_TOO_EARLY',severity:'BLOCKING_ERROR' as const,attempts:1,lastError:'mast appears early',dependencies:['STG_01.not_yet_installed']};
   session.validationWarnings=mergeValidationWarnings(session.validationWarnings,[warning,warning]);session.deferredRepairs=mergeDeferredRepairs(session.deferredRepairs,[repair,{...repair,attempts:2}]);
-  const restored=normalizeGenerationSession(JSON.parse(JSON.stringify({...session,status:'deferred_repairs'})));assert.equal(restored.status,'deferred_repairs');assert.equal(restored.validationWarnings.length,1);assert.equal(restored.deferredRepairs.length,1);assert.equal(restored.deferredRepairs[0].attempts,2);
+  const restored=normalizeGenerationSession(JSON.parse(JSON.stringify({...session,status:'deferred_repairs',operation:'COMPLETE'})));assert.equal(restored.status,'complete_with_warnings');assert.equal(restored.validationWarnings.length,1);assert.deepEqual(restored.deferredRepairs,[]);assert.equal(restored.sceneReviews.length,1);assert.equal(restored.sceneReviews[0].repairAttempted,true);assert.deepEqual(restored.sceneReviews[0].validationCodes,['COMPONENT_PRESENT_TOO_EARLY']);
 });
 
 test('detects quota exhaustion without treating ordinary validation failures as quota errors',()=>{
