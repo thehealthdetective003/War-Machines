@@ -1,5 +1,6 @@
 import type { SceneDirection, T2VPrompt } from '../types';
 import { countPromptWords, MAX_VIDEO_PROMPT_WORDS } from './promptLimits';
+import { containsGraphicPromptLanguage } from './cinematicPolicy';
 
 export type CanonicalCameraMovement='LOCKED'|'PAN'|'TILT'|'PUSH_IN'|'PULL_BACK'|'LATERAL_TRACK'|'FOLLOW_TRACK'|'CRANE'|'ORBIT'|'HANDHELD'|'AERIAL_FORWARD';
 const structuredMovementLabels:Array<[RegExp,CanonicalCameraMovement]>=[
@@ -36,6 +37,7 @@ export function promptQualityIssues(prompt:T2VPrompt,direction:SceneDirection):s
   const movements=detectedCameraMovements(prompt);
   if(movements.size>1)issues.push('MULTIPLE_CAMERA_MOVEMENTS');
   if(!value.toLowerCase().includes('second continuous shot'))issues.push('MISSING_GENERATION_DURATION');
+  if(containsGraphicPromptLanguage(value))issues.push('ACTIVE_GRAPHIC_PROMPT_LANGUAGE');
   const required=(direction.required_visible_features||[]).slice(0,3).map(normalized).filter(Boolean);
   if(direction.product_visibility!=='NONE'&&required.length&&!required.some(feature=>{
     const significant=feature.split(' ').filter(word=>word.length>4).slice(0,3);return significant.some(word=>normalized(value).includes(word));

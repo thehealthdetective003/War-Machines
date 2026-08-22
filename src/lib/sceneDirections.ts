@@ -18,7 +18,6 @@ export function ensureRequiredVisibleFeatures(item:any, plan?:PlannedScene):stri
   const supplied=Array.isArray(item?.required_visible_features)?item.required_visible_features.map(String).map((value:string)=>value.trim()).filter(Boolean):[];
   const authoritative=plan?.required_visible_features||[];
   if(supplied.length||authoritative.length)return unique(authoritative,supplied);
-  if(plan?.visual_treatment==='STATIC_GRAPHIC_T2V'||plan?.visual_treatment==='MOTION_GRAPHIC_T2V')return ['unlabeled conceptual geometry and spatial relationships'];
   if(plan?.product_visibility==='NONE')return [String(item?.environment_description||item?.temporal_action?.opening_state||item?.subject||plan.visual_family.replaceAll('_',' ')).trim()].filter(Boolean);
   return [String(item?.subject||item?.product_visual_state||'assigned scene subject').trim()].filter(Boolean);
 }

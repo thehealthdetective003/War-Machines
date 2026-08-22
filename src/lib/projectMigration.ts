@@ -1,12 +1,13 @@
 import { AppState, T2VPrompt } from '../types';
 import { resplitTranscription } from './timedTranscript';
 import { ensureRequiredVisibleFeatures, validateSceneDirections } from './sceneDirections';
-import { deriveGraphicSceneSpec, resolvePlannedState } from './scenePlanner';
+import { resolvePlannedState } from './scenePlanner';
 import { projectOrTranscriptSceneDuration } from './sceneDuration';
 import { normalizeGenerationSession } from './generationSession';
 import { createResumableProductionSession, synchronizeProductionSession } from './productionSession';
 import { clearResolvedEnvironmentRepairs, resolveSceneContract } from './sceneContract';
 import { materializeReviewedOutputs } from './sceneReview';
+import { normalizeCinematicPlans } from './cinematicPolicy';
 
 export type MigrationResult = { state: AppState | null; message?: string; error?: string };
 
@@ -26,12 +27,15 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     transcription = resplitTranscription(transcription, sceneDuration);
     timingChanged = true;
   }
-  const rawPlan = Array.isArray(raw.plannedScenes) ? raw.plannedScenes.map((item:any,index:number)=>{
+  const rawPrompts = Array.isArray(raw.visualPrompts) ? raw.visualPrompts : [];
+  const paidPromptNumbers=new Set<number>(rawPrompts.filter((item:any)=>Number.isInteger(Number(item?.number))&&typeof item?.video_prompt==='string'&&item.video_prompt.trim()).map((item:any)=>Number(item.number)));
+  const importedPlan = Array.isArray(raw.plannedScenes) ? raw.plannedScenes.map((item:any)=>{
     const contract=resolveSceneContract(raw.topic,item);
     const base={...item,state:contract.state||resolvePlannedState(raw.topic,item?.stage_id,item?.product_visibility)};
-    const timed=transcription?.scenes?.find((scene:any)=>Number(scene.number)===Number(item?.number))||transcription?.scenes?.[index];
-    return {...base,graphic_spec:item?.graphic_spec??(timed?deriveGraphicSceneSpec(raw.topic,timed,base):null),alignmentFingerprint:item?.alignmentFingerprint||(raw.projectSchemaVersion<14?'legacy-preserved-v13':undefined)};
+    return {...base,graphic_spec:item?.graphic_spec??null,alignmentFingerprint:item?.alignmentFingerprint||(raw.projectSchemaVersion<14?'legacy-preserved-v13':undefined)};
   }) : [];
+  const cinematicMigration=transcription?normalizeCinematicPlans(raw.topic,transcription.scenes,importedPlan,paidPromptNumbers):{plans:importedPlan,normalizedSceneNumbers:[]};
+  const rawPlan=cinematicMigration.plans,normalizedSceneNumbers=new Set(cinematicMigration.normalizedSceneNumbers);
   const showdownRoles=['ANTICIPATION','GROUND_REVEAL','HUMAN_SCALE','PREPARATION','DEPARTURE','AIRBORNE_ESTABLISHMENT','PERFORMANCE_PASS','COCKPIT_IMMERSION','ENVIRONMENTAL_SPECTACLE','OPERATIONAL_RESET','SECOND_PEAK','CONTROLLED_RETURN'];
   const cameraPlatforms=['GROUND_TRIPOD','GROUND_HANDHELD','RUNWAY_LONG_LENS','DISTANT_OBSERVATION','CHASE_AIRCRAFT','COCKPIT_MOUNTED','CANOPY_SIDE','VEHICLE_OR_DECK_MOUNTED'];
   const graphicSubtypes=['COMPONENT_HIGHLIGHT','TECHNICAL_CUTAWAY','PROCESS_FLOW','MECHANICAL_RELATIONSHIP','LAYER_EXPLANATION','SCALE_COMPARISON','SENSOR_SIGNAL','HEAT_OR_ENERGY_FLOW','FACTORY_SCHEMATIC','SYMBOLIC_LOCATION','CONCEPTUAL_TRANSITION'];
@@ -49,7 +53,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     &&(item?.camera_platform===null||cameraPlatforms.includes(item?.camera_platform))&&graphicSpecValid(item)&&['ENGINE_BEAT','VO_FALLBACK'].includes(item?.alignment_source)
     &&typeof item?.alignment_claim==='string'&&Array.isArray(item?.reference_asset_ids)&&Array.isArray(item?.required_visible_features)&&Array.isArray(item?.forbidden_elements)&&Array.isArray(item?.continuity_requirements);
   });
-  const rawDirections = Array.isArray(raw.sceneDirections) ? raw.sceneDirections : [];
+  const rawDirections = Array.isArray(raw.sceneDirections) ? raw.sceneDirections.filter((item:any)=>!normalizedSceneNumbers.has(Number(item?.number))) : [];
   const planByNumber = new Map(rawPlan.map((item:any)=>[Number(item.number),item]));
   const repairedDirections = planValid ? rawDirections.map((item:any)=>{
     const plan:any=planByNumber.get(Number(item?.number));
@@ -59,7 +63,6 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
   const directionsValid = directionPrefixValid && repairedDirections.length === transcription.scenes.length;
   const imageMode = raw.phase4Mode === 'image-animation';
   const legacyVeoProject=raw.t2vPromptProfile==='veo-flow';
-  const rawPrompts = Array.isArray(raw.visualPrompts) ? raw.visualPrompts : [];
   const promptNumbers = new Set<number>();
   const promptsCompatible = raw.projectSchemaVersion >= 12 && directionPrefixValid && rawPrompts.every((item:any) => {
     const number = Number(item?.number);
@@ -108,7 +111,7 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     sceneDirections: directionPrefixValid ? repairedDirections : [],
     visualPrompts: preserveOutput ? compatiblePrompts.sort((a,b)=>a.number-b.number) : [],
     generationSession,
-    projectSchemaVersion: 17,
+    projectSchemaVersion: 18,
   };
   generationSession=synchronizeProductionSession(generationSession,state);state.generationSession=productionComplete?{...generationSession,status:generationSession.sceneReviews.length||generationSession.validationWarnings.length?'complete_with_warnings':'complete',operation:'COMPLETE'}:generationSession;
   const environmentRepairMigration=clearResolvedEnvironmentRepairs(state);state=environmentRepairMigration.state;
@@ -128,7 +131,8 @@ export function migrateProject(raw: any, initial: AppState, sceneDuration: numbe
     : resumableDirections ? `Restored durable production work: ${repairedDirections.length} directions and ${compatiblePrompts.length} prompts. Resume from ${state.generationSession.operation.replaceAll('_',' ')}.${legacyVeoProject?' Future generation now uses Omni Flash.':''}`
     : legacyVeoProject ? 'Legacy project imported safely. Compatible historical prompts were preserved; future generation uses Omni Flash.'
     : reset && raw.topic ? 'Project migrated to the timestamped T2V pipeline; incompatible downstream output was reset.' : undefined;
+  const cinematicMessage=cinematicMigration.normalizedSceneNumbers.length?`Converted ${cinematicMigration.normalizedSceneNumbers.length} unfinished legacy graphic scene${cinematicMigration.normalizedSceneNumbers.length===1?'':'s'} to evidence-safe cinematic production locally. Completed paid prompts were preserved.`:undefined;
   const repairMessage=environmentRepairMigration.clearedSceneNumbers.length?`Cleared ${environmentRepairMigration.clearedSceneNumbers.length} obsolete environment repair${environmentRepairMigration.clearedSceneNumbers.length===1?'':'s'} locally without regeneration.`:undefined;
   const reviewMessage=legacyDeferredCount?`Converted ${legacyDeferredCount} legacy deferred scene issue${legacyDeferredCount===1?'':'s'} to non-blocking Needs Review and preserved or restored the best available output locally.`:undefined;
-  return {state,message:[repairMessage,reviewMessage,baseMessage].filter(Boolean).join(' ')||undefined};
+  return {state,message:[cinematicMessage,repairMessage,reviewMessage,baseMessage].filter(Boolean).join(' ')||undefined};
 }

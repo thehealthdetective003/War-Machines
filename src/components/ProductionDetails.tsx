@@ -9,8 +9,8 @@ import { productionOperationLabel, scenePresentationState } from '../lib/uiPrese
 
 const titleCase=(value:string|undefined)=>value?value.toLowerCase().replaceAll('_',' ').replace(/\b\w/g,letter=>letter.toUpperCase()):'Preparing';
 
-interface HealthProps {families:number;graphics:number;longestRun:number;prompts:number;total:number;warnings:number;reviewCount:number;}
-export function ProductionHealthSummary({families,graphics,longestRun,prompts,total,warnings,reviewCount}:HealthProps){
+interface HealthProps {families:number;referenceMedia:number;processCoverage:number;testingCoverage:number;longestRun:number;warnings:number;reviewCount:number;}
+export function ProductionHealthSummary({families,referenceMedia,processCoverage,testingCoverage,longestRun,warnings,reviewCount}:HealthProps){
   const issueCount=warnings+reviewCount;
   const label=reviewCount?`${reviewCount} need review`:warnings?`${warnings} warning${warnings===1?'':'s'}`:'Good';
   return <details className={`health-summary group rounded-xl border bg-background/35 ${issueCount?'border-amber-500/25':'border-border/60'}`}>
@@ -18,7 +18,7 @@ export function ProductionHealthSummary({families,graphics,longestRun,prompts,to
       <span className="text-sm font-semibold">Production health</span>
       <span className={`flex items-center gap-2 text-xs font-medium ${issueCount?'text-amber-500':'text-emerald-500'}`}>{issueCount?<AlertTriangle className="h-3.5 w-3.5"/>:<CheckCircle2 className="h-3.5 w-3.5"/>}{label}<ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180"/></span>
     </summary>
-    <div className="grid grid-cols-2 gap-px border-t border-border/50 bg-border/50 sm:grid-cols-5"><Metric label="Visual families" value={families}/><Metric label="Graphics" value={`${graphics}%`}/><Metric label="Longest repeat" value={longestRun}/><Metric label="Prompts" value={`${prompts}/${total}`}/><Metric label="Open issues" value={issueCount}/></div>
+    <div className="grid grid-cols-2 gap-px border-t border-border/50 bg-border/50 sm:grid-cols-5"><Metric label="Visual families" value={families}/><Metric label="Reference media" value={`${referenceMedia}%`}/><Metric label="Process coverage" value={`${processCoverage}%`}/><Metric label="Testing coverage" value={`${testingCoverage}%`}/><Metric label="Longest repeat" value={longestRun}/></div>
   </details>;
 }
 

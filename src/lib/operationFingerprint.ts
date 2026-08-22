@@ -12,9 +12,8 @@ const fnv1a=(value:string)=>{
   return (hash>>>0).toString(16).padStart(8,'0');
 };
 
-export function operationFingerprint(kind:'alignment'|'direction'|'prompt'|'local-graphic',version:string,dependencies:unknown):string{
+export function operationFingerprint(kind:'alignment'|'direction'|'prompt',version:string,dependencies:unknown):string{
   return `${kind}:${version}:${fnv1a(stableSerialize(dependencies))}`;
 }
 
 export const isReusableFingerprint=(stored:string|undefined,expected:string)=>stored===expected||stored==='legacy-preserved-v13';
-

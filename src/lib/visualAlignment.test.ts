@@ -84,5 +84,5 @@ test('routes an operational VO fallback to compatible completed-product Engine m
   const selections=validateAlignmentSelections(requests,[{group_id:requests[0].group_id,source:'VO_FALLBACK',beat_id:null,confidence:.7,visual_claim:'Completed craft moves through offshore waves during patrol'}]);
   const [planned]=applyVisualAlignments(topic,scenes,base,requests,selections);
   assert.equal(planned.visual_family,'OPERATIONAL_CONTEXT');assert.equal(planned.stage_id,'STG_OPERATIONAL');assert.equal(planned.environment_ref,'ENV_OPEN_WATER');assert.equal(planned.state,'C');assert.equal(planned.product_visibility,'FULL');
-  assert.ok(planned.required_visible_features.includes('Completed craft moves through offshore waves during patrol'));
+  assert.ok(planned.required_visible_features.includes('completed product'));assert.ok(planned.required_visible_features.includes('open-water wake'));
 });

@@ -2,6 +2,7 @@ import { OmniPromptSections, SceneDirection, T2VPrompt, TopicBrief } from '../ty
 import { generatedClipDuration } from './sceneDuration';
 import { countPromptWords, MAX_VIDEO_PROMPT_WORDS, VIDEO_PROMPT_COMPACTION_TARGET } from './promptLimits';
 import { resolveSceneContract, type ResolvedSceneContract } from './sceneContract';
+import { normalizeCinematicDirection } from './cinematicPolicy';
 
 const cleanSpace = (value: unknown) => String(value ?? '').replace(/\[object Object\]/gi, '').replace(/\s+/g, ' ').trim();
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.flatMap(strings) : typeof value === 'string' ? value.split(/\s*[|;]\s*/).map(cleanSpace).filter(Boolean) : [];
@@ -213,43 +214,16 @@ const showdownPurpose=(direction:SceneDirection):string=>{
   }
 };
 
-const graphicCompositionPhrase=(value:string):string=>({
-  SINGLE_SUBJECT:'one dominant simplified subject with generous negative space',
-  ORTHOGRAPHIC_CUTAWAY:'a clear orthographic cutaway with exposed layers kept visually separate',
-  LEFT_TO_RIGHT_FLOW:'a clean left-to-right process composition',
-  LAYERED_SEPARATION:'parallel layers separated along one stable axis',
-  TWO_PANEL_COMPARISON:'two balanced text-free panels on one shared visual baseline',
-  CONCENTRIC_SIGNAL_FIELD:'a top-down concentric signal field with one source and one response',
-  SCHEMATIC_FACTORY:'a layered schematic factory with restrained foreground machinery and one central process',
-  SYMBOLIC_ROUTE:'a symbolic route through broad geometric terrain without cartographic detail',
-  MATCHED_SHAPE_TRANSITION:'one centered geometric form held as a stable transition anchor',
-} as Record<string,string>)[value]||'one clear technical composition';
-const graphicMotionPhrase=(value:string):string=>({
-  MINIMAL_PARALLAX:'Use only minimal parallax and a restrained light pass',
-  HIGHLIGHT_PULSE:'Pulse one clean highlight once around the relevant feature',
-  FLOW_DRAW_ON:'Draw one directional flow progressively through the composition',
-  COMPONENT_TRANSLATION:'Move one component along one mechanically credible path',
-  LAYER_SEPARATION:'Separate the layers gently while preserving alignment and proportions',
-  SIGNAL_SWEEP:'Rotate one restrained signal sweep while source and target remain fixed',
-  HEAT_ZONE_PROGRESSION:'Progress one clean cool-to-warm energy zone through the mechanism',
-  CONTROLLED_ASSEMBLY:'Move one tool or component through one controlled assembly interaction',
-  MATCH_ANCHOR:'Move gently toward the centered transition shape without morphing it',
-} as Record<string,string>)[value]||'Keep all geometry stable';
-const graphicAnnotationPhrase=(values:string[]):string=>values.map(value=>({
-  DIRECTIONAL_ARROWS:'simple directional arrows',FLOW_LINES:'clean flow lines',HIGHLIGHT_RING:'one highlight ring',
-  COLORED_ZONE:'one colored emphasis zone',SIGNAL_WAVES:'simple signal waves',MEASUREMENT_BASELINE:'an unlabeled measurement baseline',
-} as Record<string,string>)[value]||'').filter(Boolean).join(' and ');
-
 export function normalizeOmniSections(raw:any,direction:SceneDirection,topic:TopicBrief|null):{sections:OmniPromptSections;resolved:ResolvedProductionScene} {
+  direction=normalizeCinematicDirection(topic,direction);
   const resolved=resolveProductionScene(topic,direction);
-  const treatment=direction.visual_treatment||'LIVE_ACTION_T2V';
   const visibility=direction.product_visibility||(direction.state==='C'?'FULL':'PARTIAL');
   const operational=['OPERATIONAL_CONTEXT','DYNAMIC_TESTING','DELIVERY_AND_ROLLOUT'].includes(direction.visual_family||'');
   const productClass=`${(topic as any)?._production_handoff?.product?.product_class||''} ${productName(topic)} ${direction.primary_action}`.toLowerCase();
   const inferred=resolved.inferred.length&&cleanSpace(direction.environment_description).length<45?`Use a plausible non-identifying production environment; do not invent proprietary internal layouts`:'';
   const factory=/factory|assembly|production|hangar|workshop/i.test(`${direction.environment_description} ${resolved.environment?.facility_type||''}`);
   const carrier=/carrier|maritime|deck/i.test(direction.environment_description);
-  const sound=treatment!=='LIVE_ACTION_T2V'?'Use restrained abstract sound synchronized to the visible graphic motion':operational&&/helicopter|rotorcraft|rotor/.test(productClass)?'Generate synchronized rotor, engine, airflow, and physically matched downwash sound':operational&&/aircraft|airplane|fighter|jet|uas|uav|drone/.test(productClass)?'Generate synchronized propulsion, airflow, wind, and control-surface sound':carrier?'Generate synchronized maritime deck ambience with wind and restrained machinery':factory?'Generate synchronized restrained factory machinery, tool-contact, ventilation, and footstep ambience':'Generate realistic ambient and mechanical sound synchronized to the visible action';
+  const sound=operational&&/helicopter|rotorcraft|rotor/.test(productClass)?'Generate synchronized rotor, engine, airflow, and physically matched downwash sound':operational&&/aircraft|airplane|fighter|jet|uas|uav|drone/.test(productClass)?'Generate synchronized propulsion, airflow, wind, and control-surface sound':carrier?'Generate synchronized maritime deck ambience with wind and restrained machinery':factory?'Generate synchronized restrained factory machinery, tool-contact, ventilation, and footstep ambience':'Generate realistic ambient and mechanical sound synchronized to the visible action';
   const rawSubject=(cleanSpace(raw?.subject)||direction.subject).replace(/\b(?:FULL|PARTIAL|DETAIL_ONLY|NONE) product visibility\.?/gi,'').trim();
   const rawEnvironment=cleanSpace(raw?.environment)||direction.environment_description;
   const rawStyle=(cleanSpace(raw?.style_lighting)||direction.lighting_and_material).replace(/\b(?:LIVE_ACTION_T2V|STATIC_GRAPHIC_T2V|MOTION_GRAPHIC_T2V)\.?/g,'').trim();
@@ -278,21 +252,17 @@ export function normalizeOmniSections(raw:any,direction:SceneDirection,topic:Top
   const temporalAction=temporalParts.filter(Boolean).map(sentence).join(' ');
   const showdownAction=showdownPurpose(direction);
   const platform=direction.camera_platform?.toLowerCase().replaceAll('_',' ');
-  const graphicSpec=direction.graphic_spec;
-  const graphicAnnotations=graphicSpec?graphicAnnotationPhrase(graphicSpec.annotation_devices):'';
-  const graphicAction=graphicSpec?`Use the opening quarter to establish the complete composition. ${graphicMotionPhrase(graphicSpec.motion_pattern)} while moving no more than ${graphicSpec.maximum_animated_elements} element${graphicSpec.maximum_animated_elements===1?'':'s'} and keeping the background and major geometry fixed. Resolve the single relationship through the middle half, then hold the completed graphic steadily for the final quarter`:temporalAction;
   const moduleIdentity=preferSpecific(resolved.identity,2);
   const productState=visibility==='NONE'?'':visibility==='DETAIL_ONLY'?(moduleIdentity.length?sentence(`Show only this component detail: ${naturalList(moduleIdentity)}`):sentence(direction.product_visual_state)):visibility==='FULL'?[canonicalIdentitySignature(topic),viewpointIdentitySentence(resolved)].filter(Boolean).join(' '):stateSentence(direction,resolved,topic);
-  const graphicSubject=treatment==='STATIC_GRAPHIC_T2V'?'An unlabeled documentary technical composition of clean geometric forms and material layers':treatment==='MOTION_GRAPHIC_T2V'?'An unlabeled documentary motion graphic of components, paths, layers, and mechanical relationships':'';
   const sections:OmniPromptSections={
-    cinematography:graphicSpec?`Use a stable 16:9 flat vector composition with ${graphicCompositionPhrase(graphicSpec.composition)} and no orbit, handheld motion, lens change, or artificial depth distortion`:treatment==='STATIC_GRAPHIC_T2V'?'Use a stable orthographic documentary composition with only minimal parallax and a restrained light pass':treatment==='MOTION_GRAPHIC_T2V'?'Use a stable technical viewpoint with one controlled graphic camera drift':`${platform?`Film from a physically credible ${platform}. `:''}Use ${article(resolved.camera.shotScale)} ${resolved.camera.shotScale} ${resolved.camera.viewpoint.replace(/\s+view$/i,'')} view on a ${resolved.camera.lens} lens, with one ${resolved.camera.behavior}${speedClause}`,
-    subject:graphicSpec?`Create a premium technical vector explainer for one claim: ${truncateFragment(graphicSpec.visual_claim,32)}${graphicAnnotations?`, using ${graphicAnnotations}`:''}`:graphicSubject||(/\b(?:is|are|stands|sits|rests|remains|appears|moves|shows)\b/i.test(rawSubject)?rawSubject:`The scene shows ${rawSubject}`),
-    action:[showdownAction,graphicAction].filter(Boolean).join('. '),
-    environment:treatment==='LIVE_ACTION_T2V'?[/^(?:set|place|film|show)\b/i.test(rawEnvironment)||/\b(?:is|are|inside|within|across|on the|in the)\b/i.test(rawEnvironment)?rawEnvironment:`Set the shot in ${rawEnvironment}`,inferred].filter(Boolean).join('. '):'Use a neutral technical space without a factory, map, interface, or readable annotation',
-    style_lighting:graphicSpec?'Use crisp geometric silhouettes with minimal texture, pale cyan, sky blue, cool gray, charcoal, one red annotation accent, and limited yellow-orange energy accents':treatment==='LIVE_ACTION_T2V'?(/^(?:use|render|light|keep)\b/i.test(rawStyle)?rawStyle:`Use ${rawStyle}`):'Use restrained documentary colors, precise edges, controlled depth, and physically plausible material shading',
+    cinematography:`${platform?`Film from a physically credible ${platform}. `:''}Use ${article(resolved.camera.shotScale)} ${resolved.camera.shotScale} ${resolved.camera.viewpoint.replace(/\s+view$/i,'')} view on a ${resolved.camera.lens} lens, with one ${resolved.camera.behavior}${speedClause}`,
+    subject:/\b(?:is|are|stands|sits|rests|remains|appears|moves|shows)\b/i.test(rawSubject)?rawSubject:`The scene shows ${rawSubject}`,
+    action:[showdownAction,temporalAction].filter(Boolean).join('. '),
+    environment:[/^(?:set|place|film|show)\b/i.test(rawEnvironment)||/\b(?:is|are|inside|within|across|on the|in the)\b/i.test(rawEnvironment)?rawEnvironment:`Set the shot in ${rawEnvironment}`,inferred].filter(Boolean).join('. '),
+    style_lighting:/^(?:use|render|light|keep)\b/i.test(rawStyle)?rawStyle:`Use ${rawStyle}`,
     product_state:productState,
     sound,
-    exclusions:naturalList(uniqueStrings([variantExclusions,direction.showdown_role?['morphing aircraft geometry','impossible camera paths','camera passing through the aircraft','unnatural sideways sliding','unverified flares or external stores']:[],operational?['weapon discharge','explosions or active combat','impossible aerobatics','changing product configuration','invented unit markings','exact event recreation','identifiable location claims']:[],cleanExclusions,graphicSpec?['blank label cards or editor placeholders','typography or speech bubbles','photorealistic or cinematic 3D materials','moving backgrounds','morphing or duplicated geometry','childish cartoon proportions']:[],treatment!=='LIVE_ACTION_T2V'?['readable labels','numbers','logos','maps','fake user interfaces','precise generated data']:[],visibility==='NONE'?['the finished product or product silhouette']:[]]).slice(0,12).map(value=>truncateFragment(value.replace(/[.,;]+$/,''),16))),
+    exclusions:naturalList(uniqueStrings([variantExclusions,direction.showdown_role?['morphing aircraft geometry','impossible camera paths','camera passing through the aircraft','unnatural sideways sliding','unverified flares or external stores']:[],operational?['weapon discharge','explosions or active combat','impossible aerobatics','changing product configuration','invented unit markings','exact event recreation','identifiable location claims']:[],cleanExclusions,['diagrams','maps','charts','motion graphics','vector graphics','fake user interfaces','readable labels or annotations'],visibility==='NONE'?['the finished product or product silhouette']:[]]).slice(0,12).map(value=>truncateFragment(value.replace(/[.,;]+$/,''),16))),
   };
   return {sections,resolved};
 }

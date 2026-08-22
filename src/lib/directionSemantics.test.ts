@@ -22,9 +22,9 @@ test('rejects manufacturing narration assigned to completed-product operational 
   assert.ok(directionSemanticIssues(direction).includes('MANUFACTURING_AS_OPERATION_CONTRADICTION'));
 });
 
-test('allows an assigned technical graphic to explain an operational relationship',()=>{
+test('does not grant legacy technical graphics a lifecycle-validation exemption',()=>{
   const direction={...base,visual_family:'TECHNICAL_GRAPHIC',state:'A',alignment_claim:'Signal waves show how the vessel searches offshore and keeps an operator connected',subject:'Text-free vessel and signal relationship',primary_action:'Signal waves extend between the vessel and operator',temporal_action:{...base.temporal_action,primary_motion:'One signal wave expands offshore',physical_interaction:'The wave connects the vessel and operator',mid_shot_progression:'The search coverage zone becomes visible'}} as SceneDirection;
-  assert.deepEqual(directionSemanticIssues(direction),[]);
+  assert.ok(directionSemanticIssues(direction).includes('LIFECYCLE_CONTRADICTION'));
 });
 
 test('distinguishes the manufacturing verb install from an operational installation noun',()=>{

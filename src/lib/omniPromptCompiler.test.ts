@@ -109,26 +109,27 @@ test('ranks exact counts, viewpoint anchors, and scene exclusions by relevance',
   assert.match(sections.exclusions,/automatic panel closure|generic airliner geometry/i);
 });
 
-test('compiles visibility-aware static and motion graphic treatments',()=>{
+test('normalizes legacy graphic treatments into photographic cinematic coverage',()=>{
   const temporal_action={opening_state:'Separated material layers hover in alignment',primary_motion:'The layers move together along one path',physical_interaction:'Their edges align without deformation',mid_shot_progression:'The relationship becomes visually clear',ending_state:'The layers settle into one clean stack'};
   for(const visual_treatment of ['STATIC_GRAPHIC_T2V','MOTION_GRAPHIC_T2V'] as const){
-    const fixture={...direction,visual_treatment,product_visibility:'NONE' as const,temporal_action};
+    const fixture={...direction,visual_family:'TECHNICAL_GRAPHIC' as const,visual_treatment,product_visibility:'DETAIL_ONLY' as const,temporal_action};
     const prompt=compileOmniPrompt(normalizeOmniSections({},fixture,topic).sections,fixture);
-    assert.match(prompt,/unlabeled documentary/i);assert.match(prompt,/neutral technical space/i);
-    assert.doesNotMatch(prompt,/Preserve the same exact KJ-600|factory ambience/i);assert.match(prompt,/readable labels/i);
+    assert.match(prompt,/cinematic shot observes|documented physical state|external/i);
+    assert.match(prompt,/assembly hall|factory/i);
+    assert.doesNotMatch(prompt,/premium technical vector|neutral technical space|diagram layers|floating arrows/i);
+    assert.match(prompt,/Exclude [^.]*diagrams/i);
   }
   const detail={...direction,visual_treatment:'LIVE_ACTION_T2V' as const,product_visibility:'DETAIL_ONLY' as const,temporal_action};
   const prompt=compileOmniPrompt(normalizeOmniSections({},detail,topic).sections,detail);
   assert.match(prompt,/Show only this component detail/i);assert.doesNotMatch(prompt,/Preserve the same exact KJ-600/i);
 });
 
-test('compiles a complete text-free vector graphic with limited motion and a final hold',()=>{
+test('never compiles legacy graphic specifications as positive graphic instructions',()=>{
   const graphic_spec={graphic_subtype:'HEAT_OR_ENERGY_FLOW' as const,visual_claim:'Show airflow progressing through one stable engine cross-section',composition:'ORTHOGRAPHIC_CUTAWAY' as const,motion_pattern:'HEAT_ZONE_PROGRESSION' as const,annotation_devices:['FLOW_LINES' as const,'COLORED_ZONE' as const],palette_profile:'PREMIUM_TECHNICAL_VECTOR' as const,maximum_animated_elements:2 as const,transition_anchor:'centered flow boundary',text_policy:'NO_GENERATED_TEXT' as const};
-  const fixture={...direction,visual_treatment:'MOTION_GRAPHIC_T2V' as const,product_visibility:'DETAIL_ONLY' as const,graphic_spec};
+  const fixture={...direction,visual_family:'TECHNICAL_GRAPHIC' as const,visual_treatment:'MOTION_GRAPHIC_T2V' as const,product_visibility:'DETAIL_ONLY' as const,graphic_spec};
   const prompt=compileOmniPrompt(normalizeOmniSections({},fixture,topic).sections,fixture);
-  assert.match(prompt,/premium technical vector explainer/i);assert.match(prompt,/cool-to-warm energy zone/i);assert.match(prompt,/final quarter/i);
-  assert.match(prompt,/blank label cards or editor placeholders/i);assert.match(prompt,/photorealistic or cinematic 3D materials/i);
-  assert.doesNotMatch(prompt,/add text later|editor-added typography|factory ambience/i);assert.equal((prompt.match(/10-second continuous shot/gi)||[]).length,1);
+  assert.doesNotMatch(prompt,/premium technical vector explainer|cool-to-warm energy zone|final quarter|editor placeholders/i);
+  assert.match(prompt,/Exclude [^.]*diagrams/i);assert.equal((prompt.match(/10-second continuous shot/gi)||[]).length,1);
 });
 
 test('compiles aircraft operational footage with physical sound and safety guards',()=>{

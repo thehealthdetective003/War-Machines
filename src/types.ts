@@ -157,6 +157,7 @@ export interface VoiceoverTranscription {
   scenes: TimedScene[];
   importedAt: string;
 }
+/** Graphic values are parse-only legacy compatibility; new production always uses LIVE_ACTION_T2V. */
 export type VisualTreatment = 'LIVE_ACTION_T2V' | 'STATIC_GRAPHIC_T2V' | 'MOTION_GRAPHIC_T2V';
 export type ShowdownRole =
   | 'ANTICIPATION'
@@ -181,6 +182,7 @@ export type CameraPlatform =
   | 'COCKPIT_MOUNTED'
   | 'CANOPY_SIDE'
   | 'VEHICLE_OR_DECK_MOUNTED';
+/** Legacy project-history schema retained so old paid output can round-trip without loss. */
 export type GraphicSubtype =
   | 'COMPONENT_HIGHLIGHT'
   | 'TECHNICAL_CUTAWAY'
@@ -239,6 +241,7 @@ export interface PlannedScene {
   showdown_role: ShowdownRole | null;
   energy_level: CinematicEnergy;
   camera_platform: CameraPlatform | null;
+  /** Import/export compatibility only. New and regenerated plans always store null. */
   graphic_spec: GraphicSceneSpec | null;
   /** Engine-owned evidence and constraints copied locally so Gemini cannot discard them. */
   reference_asset_ids?: string[];
@@ -325,6 +328,7 @@ export interface T2VPrompt {
   omniSections?: OmniPromptSections;
   /** Deterministic dependency fingerprint for the paid or locally compiled prompt result. */
   operationFingerprint?: string;
+  /** LOCAL_GRAPHIC is a historical import value and is never emitted by current production. */
   generationSource?: 'API'|'LOCAL_GRAPHIC'|'LOCAL_FALLBACK'|'LEGACY';
 }
 export type ValidationSeverity='PASS'|'WARNING'|'REPAIRABLE_ERROR'|'BLOCKING_ERROR';
@@ -374,6 +378,7 @@ export interface PersistedAlignmentSelection {
   beat_id:string|null;
   confidence:number;
   visual_claim:string;
+  /** Legacy alignment keys accepted on import but ignored by cinematic production. */
   graphic_required?:boolean;
   graphic_scene_numbers?:number[];
   operationFingerprint:string;
@@ -402,6 +407,7 @@ export interface ProductionContext {
   recentVisualFamilies:VisualFamily[];
   previousEnvironment:string|null;
   previousCameraTreatment:string|null;
+  /** Legacy context key retained for fingerprint/import shape; current sessions always store an empty array. */
   recentGraphicSceneNumbers:number[];
   recentBeatIds:string[];
   previousVisualClaim:string|null;

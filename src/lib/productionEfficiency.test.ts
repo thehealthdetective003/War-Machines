@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { AppState, PlannedScene, SceneDirection, TimedScene, T2VPrompt } from '../types';
 import { directionOperationFingerprint, partitionAlignmentResponse, partitionDirectionResponse, partitionReusableDirections } from './productionApi';
 import type { AlignmentRequestGroup } from './visualAlignment';
-import { compileLocalGraphicPrompt, partitionReusablePrompts, promptOperationFingerprint, requestPromptAttempt } from './productionPrompt';
+import { partitionReusablePrompts, promptOperationFingerprint, requestPromptAttempt } from './productionPrompt';
 import { composeDirectionInstruction, composeOmniPromptInstruction } from './productionInstructions';
 import { getApiUsageDiagnostics, resetApiUsageDiagnostics } from './apiDiagnostics';
 import { replaceDirectionAndInvalidatePrompt } from './productionSession';
@@ -23,7 +23,7 @@ test('partially accepts nine valid direction items and isolates one malformed sc
 
 test('partially accepts valid semantic groups and reports only the omitted group',()=>{
   const requests:AlignmentRequestGroup[]=Array.from({length:3},(_,index)=>({group_id:`VG_${index+1}`,scene_numbers:[index+1],voiceover:`Fastener ${index+1}`,previous_context:'',next_context:'',candidates:[{beat_id:`B${index+1}`,beat_name:'Assembly',narrative_purpose:'Show fastening',story_function:'EXPLAIN_PROCESS',visual_family:'ASSEMBLY_PROCESS',semantic_alignment_terms:['fastener'],stage_ids:['S01'],environment_ids:['E01'],product_visibility:'PARTIAL',must_show:['steel module'],must_not_show:['finished product']}]}));
-  const raw=requests.slice(0,2).map(request=>({group_id:request.group_id,source:'ENGINE_BEAT',beat_id:request.candidates[0].beat_id,confidence:.9,visual_claim:`Show ${request.voiceover}`,graphic_required:false,graphic_scene_numbers:[]})),fingerprints=new Map(requests.map(request=>[request.group_id,`alignment:${request.group_id}`]));
+  const raw=requests.slice(0,2).map(request=>({group_id:request.group_id,source:'ENGINE_BEAT',beat_id:request.candidates[0].beat_id,confidence:.9,visual_claim:`Show ${request.voiceover}`})),fingerprints=new Map(requests.map(request=>[request.group_id,`alignment:${request.group_id}`]));
   const result=partitionAlignmentResponse(requests,raw,fingerprints);assert.equal(result.accepted.length,2);assert.deepEqual(result.failed.map(item=>item.id),['VG_3']);
 });
 
@@ -35,11 +35,10 @@ test('prompt partial acceptance persists nine results and retries only the faile
   const diagnostics=getApiUsageDiagnostics();assert.equal(diagnostics.totalApiCalls,2);assert.equal(diagnostics.promptApiCalls,2);assert.equal(diagnostics.correctionApiCalls,1);assert.equal(diagnostics.totalRequestedItems,11);assert.ok(diagnostics.fullBatchRetriesAvoided>=1);assert.ok(diagnostics.unusedGeneratedFieldsRemoved>0);
 });
 
-test('compiles an approved technical graphic locally without any API request or allocation change',async()=>{
+test('normalizes a legacy graphic direction before one cinematic prompt request',async()=>{
   resetApiUsageDiagnostics();const graphic={...direction(1),visual_family:'TECHNICAL_GRAPHIC' as const,visual_treatment:'MOTION_GRAPHIC_T2V' as const,product_visibility:'NONE' as const,required_visible_features:['one text-free fastening relationship'],graphic_spec:{graphic_subtype:'MECHANICAL_RELATIONSHIP' as const,visual_claim:'Show one fastener seating into one steel module',composition:'ORTHOGRAPHIC_CUTAWAY' as const,motion_pattern:'COMPONENT_TRANSLATION' as const,annotation_devices:['DIRECTIONAL_ARROWS' as const],palette_profile:'PREMIUM_TECHNICAL_VECTOR' as const,maximum_animated_elements:1 as const,transition_anchor:null,text_policy:'NO_GENERATED_TEXT' as const}};
-  let calls=0;const ai={models:{generateContent:async()=>{calls++;throw new Error('API must not be called');}}};const result=await requestPromptAttempt(ai,'gemini-test',{topic:null},[graphic]);
-  assert.equal(calls,0);assert.equal(result.accepted.length,1);assert.equal(result.accepted[0].generationSource,'LOCAL_GRAPHIC');assert.match(result.accepted[0].video_prompt,/fastener seating into one steel module/i);assert.equal(graphic.visual_family,'TECHNICAL_GRAPHIC');assert.equal(getApiUsageDiagnostics().locallyCompiledGraphicPrompts,1);
-  assert.ok(compileLocalGraphicPrompt({topic:null},graphic).prompt);
+  let calls=0,submitted:any;const ai={models:{generateContent:async(request:any)=>{calls++;submitted=JSON.parse(request.contents).prompt_context.scenes[0];return {text:JSON.stringify([{number:1,prompt_sections:{cinematography:'Locked cinematic macro camera',subject:'Externally visible steel module detail',environment:'Documented assembly bay',style_lighting:'Photographic factory lighting',exclusions:'diagrams, arrows, readable text'}}])};}}};const result=await requestPromptAttempt(ai,'gemini-test',{topic:null},[graphic]);
+  assert.equal(calls,1);assert.equal(submitted.visual_treatment,'LIVE_ACTION_T2V');assert.equal(submitted.graphic_spec,null);assert.ok(!['TECHNICAL_GRAPHIC','MAP_OR_SUPPLY_CHAIN'].includes(submitted.visual_family));assert.equal(result.accepted.length,1);assert.equal(result.accepted[0].generationSource,'API');assert.doesNotMatch(result.accepted[0].video_prompt,/premium technical vector|floating arrows|diagram layers/i);
 });
 
 test('reuses an unchanged prompt fingerprint and marks only a changed direction stale',()=>{
@@ -59,6 +58,6 @@ test('changing one direction invalidates only its dependent prompt',()=>{
 });
 
 test('specialized instruction modules appear only when applicable',()=>{
-  const ordinary=direction(1),ordinaryDirection=composeDirectionInstruction([ordinary]),ordinaryPrompt=composeOmniPromptInstruction([ordinary]);assert.doesNotMatch(ordinaryDirection,/Aviation roles|aerodynamically/i);assert.doesNotMatch(ordinaryPrompt,/aviation footage|aerodynamically/i);assert.doesNotMatch(ordinaryPrompt,/technical graphic|vector/i);
+  const ordinary=direction(1),ordinaryDirection=composeDirectionInstruction([ordinary]),ordinaryPrompt=composeOmniPromptInstruction([ordinary]);assert.doesNotMatch(ordinaryDirection,/Aviation roles|aerodynamically/i);assert.doesNotMatch(ordinaryPrompt,/aviation footage|aerodynamically/i);assert.match(ordinaryPrompt,/Never return[^.]*vector lines/i);
   const aviation={...ordinary,visual_family:'DYNAMIC_TESTING' as const,showdown_role:'PERFORMANCE_PASS' as const,camera_platform:'CHASE_AIRCRAFT' as const};assert.match(composeDirectionInstruction([aviation],'fighter aircraft'),/Aviation roles/i);assert.match(composeOmniPromptInstruction([aviation],'fighter aircraft'),/aviation footage/i);
 });

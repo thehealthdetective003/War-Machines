@@ -6,8 +6,9 @@ import { isAdvisoryPromptQualityIssue, promptQualityIssues } from './promptQuali
 import { composeOmniPromptInstruction, PROMPT_COMPILER_VERSION, PROMPT_INSTRUCTION_VERSION } from './productionInstructions';
 import { operationFingerprint } from './operationFingerprint';
 import { isReusableFingerprint } from './operationFingerprint';
-import { recordApiCall, recordLocalGraphicCompilation, recordPartialAcceptance, recordUnusedFieldsRemoved } from './apiDiagnostics';
+import { recordApiCall, recordPartialAcceptance, recordUnusedFieldsRemoved } from './apiDiagnostics';
 import { sceneReviewDependencyFingerprint } from './reviewFingerprint';
+import { hasActiveGraphicConfiguration, normalizeCinematicDirection } from './cinematicPolicy';
 
 export interface ContentGenerator {models:{generateContent:(request:any)=>Promise<{text?:string}>};}
 const omniSectionsProperties={cinematography:{type:Type.STRING},subject:{type:Type.STRING},environment:{type:Type.STRING},style_lighting:{type:Type.STRING},exclusions:{type:Type.STRING}};
@@ -22,37 +23,25 @@ const metadata=(direction:SceneDirection)=>({number:direction.number,stage_id:di
 const productText=(state:Pick<AppState,'topic'>)=>`${(state.topic as any)?._production_handoff?.product?.product_class||''} ${state.topic?.topic?.product||''}`;
 
 export function promptOperationFingerprint(state:Pick<AppState,'topic'>,model:string,direction:SceneDirection,persistentContext?:ProductionContext):string{
-  const kind=direction.graphic_spec?'local-graphic':'prompt';
-  return operationFingerprint(kind,PROMPT_COMPILER_VERSION,{model:kind==='local-graphic'?'LOCAL':model,target:'omni-flash',instructionVersion:PROMPT_INSTRUCTION_VERSION,instruction:kind==='local-graphic'?'deterministic-graphic-compiler':composeOmniPromptInstruction([direction],productText(state)),persistentContext:persistentContext||null,promptContext:buildOmniPromptContext(state.topic,[direction])});
+  const cinematic=normalizeCinematicDirection(state.topic,direction);
+  return operationFingerprint('prompt',PROMPT_COMPILER_VERSION,{model,target:'omni-flash',instructionVersion:PROMPT_INSTRUCTION_VERSION,instruction:composeOmniPromptInstruction([cinematic],productText(state)),persistentContext:persistentContext||null,promptContext:buildOmniPromptContext(state.topic,[cinematic])});
 }
 
 function legacyPromptOperationFingerprint(state:Pick<AppState,'topic'>,model:string,direction:SceneDirection,persistentContext?:ProductionContext):string{
-  const kind=direction.graphic_spec?'local-graphic':'prompt';
-  return operationFingerprint(kind,PROMPT_COMPILER_VERSION,{model:kind==='local-graphic'?'LOCAL':model,target:'omni-flash',instructionVersion:PROMPT_INSTRUCTION_VERSION,instruction:kind==='local-graphic'?'deterministic-graphic-compiler':composeOmniPromptInstruction([direction],productText(state)),persistentContext:persistentContext||null,promptContext:buildLegacyOmniPromptContext(state.topic,[direction])});
+  const cinematic=normalizeCinematicDirection(state.topic,direction);
+  return operationFingerprint('prompt',PROMPT_COMPILER_VERSION,{model,target:'omni-flash',instructionVersion:PROMPT_INSTRUCTION_VERSION,instruction:composeOmniPromptInstruction([cinematic],productText(state)),persistentContext:persistentContext||null,promptContext:buildLegacyOmniPromptContext(state.topic,[cinematic])});
 }
 
 export function partitionReusablePrompts(existing:T2VPrompt[],directions:SceneDirection[],state:Pick<AppState,'topic'>,model:string,persistentContext?:ProductionContext,options:{sceneReviews?:SceneReviewItem[]}={}){
   const directionByNumber=new Map(directions.map(direction=>[direction.number,direction])),reusable:T2VPrompt[]=[],staleSceneNumbers:number[]=[];
-  existing.forEach(prompt=>{const direction=directionByNumber.get(prompt.number);if(!direction)return;const review=options.sceneReviews?.find(item=>item.sceneNumber===prompt.number&&item.operation==='PROMPT'),scene={number:direction.number,start:direction.start,end:direction.end,duration:direction.duration,text:direction.voiceover,silent:direction.silent},dependenciesMatch=!review?.dependencyFingerprint||review.dependencyFingerprint===sceneReviewDependencyFingerprint('PROMPT',state.topic,scene,direction,direction);if(!dependenciesMatch){staleSceneNumbers.push(prompt.number);return;}const expected=promptOperationFingerprint(state,model,direction,persistentContext),legacy=legacyPromptOperationFingerprint(state,model,direction,persistentContext);if(isReusableFingerprint(prompt.operationFingerprint,expected)||isReusableFingerprint(prompt.operationFingerprint,legacy))reusable.push(prompt);else staleSceneNumbers.push(prompt.number);});
+  existing.forEach(prompt=>{const direction=directionByNumber.get(prompt.number);if(!direction)return;if(hasActiveGraphicConfiguration(state.topic,direction)&&prompt.video_prompt.trim()){reusable.push(prompt);return;}const review=options.sceneReviews?.find(item=>item.sceneNumber===prompt.number&&item.operation==='PROMPT'),scene={number:direction.number,start:direction.start,end:direction.end,duration:direction.duration,text:direction.voiceover,silent:direction.silent},dependenciesMatch=!review?.dependencyFingerprint||review.dependencyFingerprint===sceneReviewDependencyFingerprint('PROMPT',state.topic,scene,direction,direction);if(!dependenciesMatch){staleSceneNumbers.push(prompt.number);return;}const expected=promptOperationFingerprint(state,model,direction,persistentContext),legacy=legacyPromptOperationFingerprint(state,model,direction,persistentContext);if(isReusableFingerprint(prompt.operationFingerprint,expected)||isReusableFingerprint(prompt.operationFingerprint,legacy))reusable.push(prompt);else staleSceneNumbers.push(prompt.number);});
   const reusableNumbers=new Set(reusable.map(prompt=>prompt.number));return {reusable:reusable.sort((a,b)=>a.number-b.number),staleSceneNumbers:[...new Set(staleSceneNumbers)].sort((a,b)=>a-b),missingDirections:directions.filter(direction=>!reusableNumbers.has(direction.number))};
-}
-
-export function compileLocalGraphicPrompt(state:Pick<AppState,'topic'>,direction:SceneDirection,persistentContext?:ProductionContext):{prompt:T2VPrompt|null;failure:PromptFailure|null}{
-  if(!direction.graphic_spec)return {prompt:null,failure:{number:direction.number,issues:['MISSING_GRAPHIC_SPEC']}};
-  const fingerprint=promptOperationFingerprint(state,'LOCAL',direction,persistentContext);
-  const {sections}=normalizeOmniSections({},direction,state.topic);
-  const prompt:T2VPrompt={...metadata(direction),video_prompt:compileOmniPrompt(sections,direction),quality_flags:[],omniSections:sections,operationFingerprint:fingerprint,generationSource:'LOCAL_GRAPHIC'};
-  const issues=blockingIssues(prompt,direction);prompt.quality_flags=promptQualityIssues(prompt,direction);
-  if(issues.length)return {prompt:null,failure:{number:direction.number,issues,candidate:prompt}};
-  recordLocalGraphicCompilation();return {prompt,failure:null};
 }
 
 const failureReason=(failures:PromptFailure[])=>failures.length?`scene${failures.length===1?'':'s'} ${failures.map(item=>`${item.number} (${item.issues.join(', ')})`).join('; ')}`:null;
 
 export async function requestPromptAttempt(ai:ContentGenerator,model:string,state:Pick<AppState,'topic'>,selected:SceneDirection[],qualityRetry?:string,persistentContext?:ProductionContext):Promise<PromptAttemptResult>{
-  const localDirections=selected.filter(direction=>Boolean(direction.graphic_spec)),apiDirections=selected.filter(direction=>!direction.graphic_spec),accepted:T2VPrompt[]=[],failed:PromptFailure[]=[],locallyCompiledSceneNumbers:number[]=[];
-  localDirections.forEach(direction=>{const result=compileLocalGraphicPrompt(state,direction,persistentContext);if(result.prompt){accepted.push(result.prompt);locallyCompiledSceneNumbers.push(direction.number);}else if(result.failure)failed.push(result.failure);});
-  if(!apiDirections.length){recordPartialAcceptance(accepted.length,failed.length,Boolean(qualityRetry));return {accepted,failed,reason:failureReason(failed),apiRequestedSceneNumbers:[],locallyCompiledSceneNumbers};}
+  const apiDirections=selected.map(direction=>normalizeCinematicDirection(state.topic,direction)),accepted:T2VPrompt[]=[],failed:PromptFailure[]=[],locallyCompiledSceneNumbers:number[]=[];
   const focused=buildOmniPromptContext(state.topic,apiDirections),instruction=composeOmniPromptInstruction(apiDirections,productText(state),qualityRetry);
   const focusedHandoff=(focused as any).authoritative_production_handoff,estimatedInputCharactersAvoided=focusedHandoff?focusedContextCharacterSavings(state.topic,focusedHandoff):0;
   recordApiCall('prompt',apiDirections.length,{correction:Boolean(qualityRetry),estimatedInputCharactersAvoided});recordUnusedFieldsRemoved(apiDirections.length*5);
@@ -74,7 +63,7 @@ export async function requestPromptAttempt(ai:ContentGenerator,model:string,stat
 }
 
 export function compileFallbackPrompt(state:Pick<AppState,'topic'>,direction:SceneDirection,model='LOCAL_REVIEW',persistentContext?:ProductionContext,fingerprintOverride?:string):T2VPrompt{
-  const {sections}=normalizeOmniSections({},direction,state.topic);
-  const prompt:T2VPrompt={...metadata(direction),video_prompt:compileOmniPrompt(sections,direction),quality_flags:[],omniSections:sections,operationFingerprint:fingerprintOverride||promptOperationFingerprint(state,model,direction,persistentContext),generationSource:'LOCAL_FALLBACK'};
-  prompt.quality_flags=promptQualityIssues(prompt,direction);return prompt;
+  const cinematic=normalizeCinematicDirection(state.topic,direction),{sections}=normalizeOmniSections({},cinematic,state.topic);
+  const prompt:T2VPrompt={...metadata(cinematic),video_prompt:compileOmniPrompt(sections,cinematic),quality_flags:[],omniSections:sections,operationFingerprint:fingerprintOverride||promptOperationFingerprint(state,model,cinematic,persistentContext),generationSource:'LOCAL_FALLBACK'};
+  prompt.quality_flags=promptQualityIssues(prompt,cinematic);return prompt;
 }

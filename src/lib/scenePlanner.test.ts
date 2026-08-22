@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import template from '../schemas/Modus_Visual_Production_Handoff_V2_Template.json';
 import { normalizeProductionHandoff } from './productionTemplate';
-import { alignScenesToChapters, buildDocumentaryScenePlan, deriveGraphicSceneSpec, isOperationallyMobileProduct } from './scenePlanner';
+import { alignScenesToChapters, buildDocumentaryScenePlan, isOperationallyMobileProduct } from './scenePlanner';
 
 const scenes=(count:number,duration=10)=>Array.from({length:count},(_,i)=>({number:i+1,start:i*duration,end:(i+1)*duration,duration,text:i%4===0?'factory scale and logistics':i%4===1?'assembly workers install component':i%4===2?'precision testing and measurement':'mechanical system relationship',silent:false}));
 const operationalTopic=(productClass='combat helicopter',restricted=false)=>{
@@ -15,14 +15,14 @@ const operationalTopic=(productClass='combat helicopter',restricted=false)=>{
   return normalizeProductionHandoff(raw);
 };
 
-test('preserves coherent manufacturing runs instead of forcing a new family every two scenes',()=>{
+test('preserves coherent manufacturing coverage without introducing graphics',()=>{
   const topic=normalizeProductionHandoff(JSON.parse(JSON.stringify(template)));
   const input=Array.from({length:12},(_,i)=>({number:i+1,start:i*10,end:(i+1)*10,duration:10,text:`Technicians assemble structural component ${i+1}, preserve its interface, and continue the same manufacturing sequence.`,silent:false}));
   const plan=buildDocumentaryScenePlan(topic,input);
   assert.equal(plan.length,12);
-  assert.ok(plan.every(item=>item.visual_family==='ASSEMBLY_PROCESS'));
+  assert.ok(plan.every(item=>!['TECHNICAL_GRAPHIC','MAP_OR_SUPPLY_CHAIN'].includes(item.visual_family)));
   assert.ok(plan.every(item=>item.visual_treatment==='LIVE_ACTION_T2V'));
-  assert.ok(plan.every(item=>item.beat_id.endsWith('__SEMANTIC_FALLBACK')));
+  assert.equal(new Set(plan.map(item=>item.visual_family)).size,1);
 });
 
 test('aligns narration monotonically across every Engine chapter without explicit chapter headings',()=>{
@@ -102,29 +102,16 @@ test('does not add aviation showdown metadata to non-aviation manufacturing scen
   assert.ok(plan.every(item=>item.showdown_role===null&&item.camera_platform===null));
 });
 
-test('classifies text-free technical graphic subtypes from VO and beat semantics',()=>{
-  const plan={beat_id:'GFX',visual_family:'TECHNICAL_GRAPHIC',visual_treatment:'MOTION_GRAPHIC_T2V'} as const;
-  const scene=(text:string)=>({number:1,start:0,end:10,duration:10,text,silent:false});
-  assert.equal(deriveGraphicSceneSpec(null,scene('Radar waves sweep outward and detect the aircraft'),plan as any)?.graphic_subtype,'SENSOR_SIGNAL');
-  assert.equal(deriveGraphicSceneSpec(null,scene('Heat moves from the combustion chamber through the turbine'),plan as any)?.graphic_subtype,'HEAT_OR_ENERGY_FLOW');
-  assert.equal(deriveGraphicSceneSpec(null,scene('Compare the two aircraft on the same scale'),plan as any)?.graphic_subtype,'SCALE_COMPARISON');
-  const factory=deriveGraphicSceneSpec(null,scene('A robotic arm installs the component in the factory'),plan as any);
-  assert.equal(factory?.graphic_subtype,'FACTORY_SCHEMATIC');
-  assert.equal(factory?.text_policy,'NO_GENERATED_TEXT');
-  assert.ok((factory?.annotation_devices.length||0)<=2);
-  assert.ok((factory?.maximum_animated_elements||0)<=3);
-});
-
-test('stores a graphic specification on every planned static or motion graphic',()=>{
+test('converts abstract engineering narration and a legacy graphic beat to cinematic coverage',()=>{
   const raw:any=JSON.parse(JSON.stringify(template));
   const base=raw.visual_story_plan.chapters[0].visual_beats[0];
   raw.visual_story_plan.chapters[0].visual_beats.push({...base,beat_id:'CH01_GFX',beat_order:2,beat_name:'Interface alignment relationship',story_function:'EXPLAIN_ARCHITECTURE',visual_family:'TECHNICAL_GRAPHIC',narrative_purpose:'Explain how alignment error propagates through connected structural interfaces',semantic_alignment_terms:['alignment','error','propagates','connected','interface'],product_visibility:'DETAIL_ONLY',preferred_media_routes:['GENERATED_T2V'],generation_permission:'T2V_ALLOWED'});
   const topic=normalizeProductionHandoff(raw);
   const input=scenes(35).map((scene,index)=>({...scene,text:index===17?'Alignment error propagates through every connected structural interface.':'Workers install and inspect the physical component inside the assembly hall.'}));
   const plan=buildDocumentaryScenePlan(topic,input);
-  const graphics=plan.filter(item=>item.visual_treatment==='STATIC_GRAPHIC_T2V'||item.visual_treatment==='MOTION_GRAPHIC_T2V');
-  assert.equal(graphics.length,1);
-  assert.equal(graphics[0].number,18);
-  assert.ok(graphics.every(item=>item.graphic_spec?.text_policy==='NO_GENERATED_TEXT'));
-  assert.ok(plan.filter(item=>item.visual_treatment==='LIVE_ACTION_T2V').every(item=>item.graphic_spec===null));
+  assert.equal(plan.length,35);
+  assert.ok(plan.every(item=>item.visual_treatment==='LIVE_ACTION_T2V'));
+  assert.ok(plan.every(item=>!['TECHNICAL_GRAPHIC','MAP_OR_SUPPLY_CHAIN'].includes(item.visual_family)));
+  assert.ok(plan.every(item=>item.graphic_spec===null));
+  assert.ok(['COMPONENT_MACRO','QUALITY_CONTROL','MEASUREMENT_AND_CALIBRATION','TOOL_LEVEL_DETAIL','ATMOSPHERIC_INTERSTITIAL'].includes(plan[17].visual_family));
 });

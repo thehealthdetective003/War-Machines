@@ -52,6 +52,13 @@ test('keeps only camera-conflict diagnostics advisory after correction',()=>{
   assert.equal(isAdvisoryPromptQualityIssue('MISSING_GENERATION_DURATION'),false);
 });
 
+test('rejects positive graphic instructions but ignores graphic words inside exclusions',()=>{
+  const positive=prompt('6-second continuous shot. Use a locked camera. Create a vector diagram with floating arrows around four vertical support legs.');
+  assert.ok(promptQualityIssues(positive,direction).includes('ACTIVE_GRAPHIC_PROMPT_LANGUAGE'));
+  const negative=prompt('6-second continuous shot. Use a locked camera while four vertical support legs remain visible. Exclude diagrams, vector overlays, floating arrows, and readable labels.');
+  assert.ok(!promptQualityIssues(negative,direction).includes('ACTIVE_GRAPHIC_PROMPT_LANGUAGE'));
+});
+
 test('compiles a static-camera direction with forward vessel motion without a camera conflict',()=>{
   const operationalDirection:any={number:76,start:450,end:456,duration:6,generation_duration_seconds:6,voiceover:'The autonomous vessel continues its mission.',silent:false,visual_family:'OPERATIONAL_CONTEXT',visual_treatment:'LIVE_ACTION_T2V',product_visibility:'FULL',stage_id:'STG_07',environment_ref:'ENV_OFFSHORE',state:'C',subject:'autonomous vessel',product_visual_state:'Finished operational State C',primary_action:'The vessel navigates autonomously',supporting_motion:'The vessel tracks near distant infrastructure',environment_description:'A generic offshore operating context',camera:{shot_scale:'EXTREME_WIDE',lens:'WIDE_ANGLE',angle:'HIGH_ANGLE',movement:'STATIC',movement_speed:'NONE'},lighting_and_material:'Marine daylight',continuity_from_previous:'Same configuration',transition_to_next:'Closer view',required_visible_features:['autonomous vessel'],forbidden_elements:['readable generated text'],temporal_action:{opening_state:'The vessel is already underway',primary_motion:'The vessel glides forward steadily',physical_interaction:'A continuous wake follows the hull',mid_shot_progression:'The vessel maintains a stable attitude',ending_state:'The vessel continues its forward progress'}};
   const {sections}=normalizeOmniSections({},operationalDirection,null),video_prompt=compileOmniPrompt(sections,operationalDirection),candidate:any={number:76,video_prompt,action_description:operationalDirection.primary_action,voiceover:operationalDirection.voiceover,stock_keywords:'vessel',omniSections:sections};

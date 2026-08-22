@@ -1,7 +1,6 @@
 import type { PlannedScene, SceneDirection } from '../types';
 
 const OPERATIONAL_FAMILIES=new Set(['OPERATIONAL_CONTEXT','DYNAMIC_TESTING','ENVIRONMENTAL_TESTING','DELIVERY_AND_ROLLOUT','HERO_PRODUCT']);
-const GRAPHIC_FAMILIES=new Set(['TECHNICAL_GRAPHIC','MAP_OR_SUPPLY_CHAIN']);
 const stop=new Set(['about','across','after','against','along','around','before','clearly','close','completed','detailed','from','into','m75','oceanalpha','object','scene','show','showing','system','through','visible','with']);
 const semanticTokens=(value:string)=>new Set((value.toLowerCase().match(/[a-z0-9]{4,}/g)||[]).filter(token=>!stop.has(token)).map(token=>token.slice(0,7)));
 export const isOperationalVisualClaim=(value:string)=>/\b(open water|at sea|offshore|coastal|waves?|pitches?|rolls?|cruises?|speed(?:ing)?|stable course|traffic|rescue|search(?:ing)?|tracking|deployed|launch|transit|horizon|navigat(?:e|es|ing)|patrol(?:s|ling)?|underway)\b/i.test(value)
@@ -10,8 +9,8 @@ export const isOperationalVisualClaim=(value:string)=>/\b(open water|at sea|offs
 export const isManufacturingVisualClaim=(value:string)=>/\b(assembl(?:e|es|ing|y)|fabricat(?:e|es|ed|ing|ion)|weld(?:s|ed|ing)?|machin(?:ed|ing)|cutout|cut edge|cutting (?:tool|head|machine|operation)|trim(?:s|med|ming)?|drill(?:s|ed|ing)?|bond(?:s|ed|ing)?|install(?:s|ed|ing)?|fasten(?:s|ed|ing)?|join(?:s|ed|ing)?|layup|mould(?:s|ed|ing)?|mold(?:s|ed|ing)?|cure(?:s|d|ing)?|fixture|jig|raw material|unfinished|workshop|production line)\b/i.test(value);
 
 export function lifecycleAlignmentIssues(claim:string,visualFamily:string,state?:string):string[]{
-  const operational=isOperationalVisualClaim(claim),manufacturing=isManufacturingVisualClaim(claim),familyOperational=OPERATIONAL_FAMILIES.has(visualFamily),familyGraphic=GRAPHIC_FAMILIES.has(visualFamily),issues:string[]=[];
-  if(operational&&!familyOperational&&!familyGraphic)issues.push('LIFECYCLE_CONTRADICTION');
+  const operational=isOperationalVisualClaim(claim),manufacturing=isManufacturingVisualClaim(claim),familyOperational=OPERATIONAL_FAMILIES.has(visualFamily),issues:string[]=[];
+  if(operational&&!familyOperational)issues.push('LIFECYCLE_CONTRADICTION');
   if(manufacturing&&familyOperational)issues.push('MANUFACTURING_AS_OPERATION_CONTRADICTION');
   return [...new Set(issues)];
 }
